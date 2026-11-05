@@ -1,7 +1,7 @@
 id = "custom-dnn"
 legacy_ids = ["v1-5"]
 title = "Implement a Deep Neural Network"
-description = "Construct a multi-layer feedforward neural network with nonlinear activations, training it on a classification task."
+description = "Construct a feedforward neural network (Linear -> ReLU -> Linear) and train it on a nonlinear regression task, comparing it against a purely linear model."
 difficulty = "basic"
 frequency = "emerging"   # very-likely | common | emerging (derived from company reports)
 number = 5
@@ -16,8 +16,8 @@ hints = [
 ]
 
 [notebooks]
-question = "custon-DNN.ipynb"
-solution = "custon-DNN_SOLN.ipynb"
+question = "custom-DNN.ipynb"
+solution = "custom-DNN_SOLN.ipynb"
 
 [grading]
 tier = "C"        # A=auto-graded B=partial C=not auto-graded (SEEDED, confirm)

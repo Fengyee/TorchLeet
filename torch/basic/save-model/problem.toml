@@ -1,7 +1,7 @@
 id = "save-model"
 legacy_ids = ["v1-7"]
 title = "Save and Load PyTorch Model"
-description = "Serialize model weights with state_dict and reload them, handling device mapping and architecture changes."
+description = "Save a model's state_dict and reload it for inference (map_location, weights_only, eval mode), then save and restore a full training checkpoint with optimizer state."
 difficulty = "basic"
 frequency = "emerging"   # very-likely | common | emerging (derived from company reports)
 number = 7

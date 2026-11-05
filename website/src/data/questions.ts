@@ -83,8 +83,8 @@ const v1Questions: Omit<Question, "description" | "tracks" | "llmPathOrder" | "l
     title: "Implement a Deep Neural Network",
     difficulty: "basic",
     companies: [],
-    questionPath: "torch/basic/custom-DNN/custon-DNN.ipynb",
-    solutionPath: "torch/basic/custom-DNN/custon-DNN_SOLN.ipynb",
+    questionPath: "torch/basic/custom-DNN/custom-DNN.ipynb",
+    solutionPath: "torch/basic/custom-DNN/custom-DNN_SOLN.ipynb",
     hasNotebook: true,
   },
   {

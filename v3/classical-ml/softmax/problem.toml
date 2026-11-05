@@ -1,7 +1,7 @@
 id = "softmax"
 legacy_ids = ["v3-1"]
 title = "Implement Softmax from Scratch"
-description = "Build numerically stable softmax using the log-sum-exp trick, handling overflow and underflow in raw tensor math."
+description = "Build numerically stable softmax from raw tensor ops by subtracting the max along dim (the same shift behind the log-sum-exp trick), so exp() never overflows."
 difficulty = "easy"
 frequency = "very-likely"   # very-likely | common | emerging (derived from company reports)
 number = 1

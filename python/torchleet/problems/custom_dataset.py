@@ -124,10 +124,24 @@ def check_dataloader_batches_it(ns):
         f"{seen}")
 
 
+def check_batches_fit_the_model(ns):
+    """nn.Linear(1, 1) needs X batches of (B, 1); MSELoss needs y to match the
+    (B, 1) predictions — a (B,) target silently broadcasts to (B, B)."""
+    ds = _dataset(ns)
+    bx, by = next(iter(DataLoader(ds, batch_size=4, shuffle=False)))
+    assert tuple(bx.shape) == (4, 1), (
+        f"a batch of 4 X values has shape {tuple(bx.shape)}, expected (4, 1) — "
+        "each item's x should have shape (1,) so nn.Linear(1, 1) can take the batch")
+    assert tuple(by.shape) == (4, 1), (
+        f"a batch of 4 targets has shape {tuple(by.shape)}, expected (4, 1) to match "
+        "the model's (4, 1) predictions — a (4,) target makes MSELoss broadcast to (4, 4)")
+
+
 CHECKS = [
     check_is_a_torch_dataset,
     check_length_is_the_row_count,
     check_getitem_returns_x_and_y,
     check_values_match_the_file,
     check_dataloader_batches_it,
+    check_batches_fit_the_model,
 ]
