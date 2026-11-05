@@ -3,8 +3,16 @@
 questions.ts, README tables and the grader registry are generated from them.
 
 Subcommands:
-  seed   one-time: create problem.toml for every problem directory on disk
-  check  validate manifests against disk (CI gate)
+  check     validate manifests against disk and grader specs (CI gate)
+  coverage  print how many problems are auto-graded
+  hints     copy each grader spec's HINTS into its problem.toml
+  badges    (re)write the Colab/grader cell at the top of question notebooks
+  readme    write PROBLEMS.md and sync the counts quoted in README.md
+  sources   write SOURCES.md from the [[companies]] tables
+  website   write website/src/data/problems.generated.ts
+  json      write problems.json (+ space/problems.json)
+  all       hints, badges, readme, sources, website, json — run after adding a problem
+  seed      historical one-time bootstrap (reads /tmp/catalog.json); not for normal use
 
 Reads TOML with stdlib tomllib. Writes it with a small emitter here, because the
 only writer is `seed` and pulling in a dependency for one-time output is not worth
@@ -266,26 +274,6 @@ def _spec_entries(pid: str) -> list[str] | None:
     return re.findall(r'"([^"]+)"', m.group(1)) if m else []
 
 
-def _spec_hints(pid: str) -> list[str]:
-    """HINTS from the grader spec. The spec module is the single source for
-    hints; the Space, the website and the MCP server all read them from the
-    generated output rather than keeping their own copies."""
-    f = _spec_path(pid)
-    if f is None:
-        return []
-    m = re.search(r"^HINTS\s*=\s*\[(.*?)^\]", f.read_text(), re.M | re.S)
-    if not m:
-        return []
-    # Hints are written as adjacent-string literals across lines; join each
-    # element's pieces so "a" \n "b" becomes one hint, not two.
-    out = []
-    for item in re.findall(r'((?:\s*"(?:[^"\\]|\\.)*"\s*)+),', m.group(1) + ","):
-        parts = re.findall(r'"((?:[^"\\]|\\.)*)"', item)
-        if parts:
-            out.append("".join(parts).replace('\\"', '"'))
-    return out
-
-
 def cmd_check() -> int:
     errs, seen, n = [], {}, 0
     for mf in sorted(ROOT.rglob("problem.toml")):
@@ -333,10 +321,14 @@ def cmd_check() -> int:
     return 1 if errs else 0
 
 
-REPO = "Exorust/TorchLeet"
+REPO = "Fengyee/TorchLeet"
 COLAB = f"https://colab.research.google.com/github/{REPO}/blob/main"
 BADGE = "https://colab.research.google.com/assets/colab-badge.svg"
 MARK = "<!-- torchleet:colab -->"
+# The grader is not on PyPI; install it from this repo (editable locally, or
+# straight from GitHub on Colab).
+INSTALL_LOCAL = "pip install -e python/"
+INSTALL_COLAB = f'!pip install -q "git+https://github.com/{REPO}#subdirectory=python"'
 
 
 def load_all() -> list[tuple[dict, Path]]:
@@ -364,9 +356,13 @@ def cmd_badges() -> int:
             "source": [f"{MARK}\n",
                        f"[![Open In Colab]({BADGE})]({colab_url(m, d)})\n",
                        "\n",
-                       "Check your work: `!pip install torchleet` then "
+                       f"Check your work: `{INSTALL_LOCAL}` once from the repo root "
+                       f"(on Colab: `{INSTALL_COLAB}`), then "
                        f"`from torchleet import check; check(\"{m['id']}\", ...)`\n"],
         }
+        # nbformat >= 4.5 requires a cell id; older notebooks must not have one.
+        if (nb.get("nbformat"), nb.get("nbformat_minor", 0)) >= (4, 5):
+            cell["id"] = "torchleet-colab"
         cells = [c for c in nb["cells"]
                  if not (c["cell_type"] == "markdown" and MARK in "".join(c["source"]))]
         nb["cells"] = [cell] + cells
@@ -376,31 +372,58 @@ def cmd_badges() -> int:
     return 0
 
 
-def cmd_readme() -> int:
-    """Write the generated index to PROBLEMS.md and sync the counts quoted in
-    README.md. The README's curated sections (LLM path staging, company
-    quick-reference) are hand-written and deliberately left alone."""
-    rows = {"basics": [], "llm-path": [], "advanced": []}
-    for m, d in load_all():
-        graded = "✅" if _spec_entries(m.get("id")) is not None else ""
-        freq = {"very-likely": "🔥", "common": "⭐", "emerging": "💡"}.get(
-            m.get("frequency", ""), "")
-        comps = ", ".join(c["name"] for c in m.get("companies", [])) or ""
-        q = (d.relative_to(ROOT) / m["notebooks"]["question"]).as_posix()
-        s = m["notebooks"].get("solution")
-        links = f"[Q]({q})" + (f" / [S]({(d.relative_to(ROOT) / s).as_posix()})" if s else "")
-        row = (f"| {freq} {m['title']} | {m['difficulty']} | {comps} | {graded} | "
-               f"[![Colab]({BADGE})]({colab_url(m, d)}) | {links} |")
-        for t in m.get("tracks", []) or ["advanced"]:
-            if t in rows:
-                rows[t].append(row)
+# PROBLEMS.md is grouped by where a problem lives on disk, which is also how the
+# study plan (study/README.md) refers to problems.
+SECTIONS = {
+    "torch/basic": "PyTorch basics",
+    "torch/easy": "PyTorch — easy",
+    "torch/medium": "PyTorch — medium",
+    "torch/hard": "PyTorch — hard",
+    "llm": "LLM building blocks",
+    "v3/classical-ml": "Classical ML",
+    "v3/data-loading": "Data loading",
+    "v3/modern-architectures": "Modern architectures",
+    "v3/alignment-training": "Alignment & training",
+    "v3/llm-decoding": "LLM decoding",
+    "v3/llm-inference": "LLM inference",
+    "v3/gpu-systems": "GPU systems & kernels",
+    "v4/ml-fundamentals": "ML fundamentals & evaluation",
+    "v4/dl-fundamentals": "Deep-learning fundamentals",
+    "v4/vision": "Vision",
+    "v4/generative": "Generative models",
+    "v4/multimodal": "Multimodal",
+    "v4/systems": "ML systems",
+}
+DIFF_RANK = {"basic": 0, "easy": 1, "medium": 2, "hard": 3, "expert": 4}
 
-    head = ("| Problem | Difficulty | Companies | Graded | Run | Links |\n"
-            "|---|---|---|---|---|---|")
+
+def section_of(d: Path) -> str:
+    parts = d.relative_to(ROOT).parts
+    return "/".join(parts[:1] if parts[0] == "llm" else parts[:2])
+
+
+def cmd_readme() -> int:
+    """Write the generated index to PROBLEMS.md and sync the counts README.md
+    quotes between <!--total-->N<!--/total--> / <!--graded-->N<!--/graded-->."""
+    groups: dict[str, list[tuple[dict, Path]]] = {}
+    for m, d in load_all():
+        groups.setdefault(section_of(d), []).append((m, d))
+
+    head = ("| Problem | id (for `check`) | Difficulty | Graded | Notebooks |\n"
+            "|---|---|---|---|---|")
+    order = [k for k in SECTIONS if k in groups] + sorted(k for k in groups if k not in SECTIONS)
     body = []
-    for track, title in (("basics", "Basics"), ("llm-path", "LLM Learning Path"),
-                         ("advanced", "Advanced")):
-        body += [f"\n### {title} ({len(rows[track])})\n", head, *rows[track]]
+    for key in order:
+        items = sorted(groups[key], key=lambda t: (DIFF_RANK.get(t[0]["difficulty"], 9),
+                                                  t[0].get("number") or 0, t[0]["title"]))
+        body += [f"\n### {SECTIONS.get(key, key)} — `{key}/` ({len(items)})\n", head]
+        for m, d in items:
+            graded = "✅" if _spec_entries(m.get("id")) is not None else ""
+            q = (d.relative_to(ROOT) / m["notebooks"]["question"]).as_posix()
+            s = m["notebooks"].get("solution")
+            links = f"[Q]({q})" + (f" · [S]({(d.relative_to(ROOT) / s).as_posix()})" if s else "")
+            links += f" · [Colab]({colab_url(m, d)})"
+            body.append(f"| {m['title']} | `{m['id']}` | {m['difficulty']} | {graded} | {links} |")
 
     total = len(load_all())
     graded = sum(1 for m, _ in load_all() if _spec_entries(m.get("id")) is not None)
@@ -408,21 +431,19 @@ def cmd_readme() -> int:
         f"# All {total} problems\n\n"
         "Generated from the per-problem `problem.toml` manifests — do not edit by hand.\n"
         f"Run `python3 scripts/generate.py readme` to refresh.\n\n"
-        f"**{graded} of {total} are auto-graded** (`pip install torchleet`). A ✅ in the\n"
-        "Graded column means `check()` will verify your solution.\n"
+        f"**{graded} of {total} are auto-graded.** A ✅ in the Graded column means\n"
+        f"`check()` will verify your solution (one-time setup: `{INSTALL_LOCAL}`).\n"
+        "Within each section problems are ordered by difficulty.\n"
         + "\n".join(body) + "\n")
 
     # Keep the numbers the README quotes in step with reality.
     readme = ROOT / "README.md"
     txt = readme.read_text()
-    txt = re.sub(r"\*\*\d+ PyTorch problems from real",
-                 f"**{total} PyTorch problems from real", txt)
-    txt = re.sub(r"access to all \d+ problems", f"access to all {total} problems", txt)
-    txt = re.sub(r"^\d+ problems across three tracks:",
-                 f"{total} problems across three tracks:", txt, flags=re.M)
+    txt = re.sub(r"(<!--total-->)\d+(<!--/total-->)", rf"\g<1>{total}\g<2>", txt)
+    txt = re.sub(r"(<!--graded-->)\d+(<!--/graded-->)", rf"\g<1>{graded}\g<2>", txt)
     readme.write_text(txt)
-    print(f"PROBLEMS.md written ({sum(len(v) for v in rows.values())} rows); "
-          f"README counts synced to {total}")
+    print(f"PROBLEMS.md written ({total} rows in {len(order)} sections); "
+          f"README counts synced to {total} ({graded} graded)")
     return 0
 
 
@@ -521,41 +542,6 @@ def cmd_website() -> int:
         "export function getProblemByAnyId(id: string): GeneratedProblem | undefined {\n"
         "  return generatedProblems.find((p) => p.slug === id || p.legacyIds.includes(id));\n}\n")
     print(f"website data written: {len(items)} problems -> {out.relative_to(ROOT)}")
-    return 0
-
-
-MINUTES = {"basic": 20, "easy": 30, "medium": 45, "hard": 90, "expert": 120}
-
-
-def cmd_studyplan() -> int:
-    """Generated study plan. Estimates come from difficulty, so they move with
-    the catalogue instead of going stale in prose."""
-    tracks: dict[str, list] = {}
-    for m, _ in load_all():
-        for t in m.get("tracks", []) or ["advanced"]:
-            tracks.setdefault(t, []).append(m)
-
-    lines = ["# Study plans", "",
-             "Generated from the manifests — estimates are per-problem budgets by",
-             "difficulty (basic 20m, easy 30m, medium 45m, hard 90m, expert 2h), not",
-             "measurements. Treat them as relative effort, not a promise.", ""]
-    for track, title in (("basics", "Basics"), ("llm-path", "LLM Learning Path"),
-                         ("advanced", "Advanced")):
-        ms = tracks.get(track, [])
-        if not ms:
-            continue
-        mins = sum(MINUTES.get(m["difficulty"], 45) for m in ms)
-        weeks = max(1, round(mins / 60 / 5))
-        lines += [f"## {title}", "",
-                  f"**{len(ms)} problems · ~{mins // 60} hours · "
-                  f"about {weeks} week{'s' if weeks > 1 else ''} at 5 h/week**", ""]
-        for d in ("basic", "easy", "medium", "hard", "expert"):
-            sub = [m for m in ms if m["difficulty"] == d]
-            if sub:
-                lines.append(f"- {len(sub)} {d} (~{sum(MINUTES[d] for _ in sub) // 60}h)")
-        lines.append("")
-    (ROOT / "STUDYPLAN.md").write_text("\n".join(lines))
-    print("STUDYPLAN.md written")
     return 0
 
 
@@ -705,9 +691,12 @@ if __name__ == "__main__":
         sys.exit(cmd_website())
     if cmd == "json":
         sys.exit(cmd_json())
-    if cmd == "studyplan":
-        sys.exit(cmd_studyplan())
     if cmd == "hints":
         sys.exit(cmd_hints())
+    if cmd == "all":
+        for step in (cmd_hints, cmd_badges, cmd_readme, cmd_sources, cmd_website, cmd_json):
+            if step():
+                sys.exit(1)
+        sys.exit(cmd_check())
     print(__doc__)
     sys.exit(2)
