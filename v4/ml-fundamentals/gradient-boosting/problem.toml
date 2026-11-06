@@ -1,0 +1,25 @@
+id = "gradient-boosting"
+title = "Gradient Boosting Regressor"
+description = "Implement gradient-boosted regression trees for squared loss, including your own variance-reduction regression tree, shrinkage and staged predictions."
+difficulty = "hard"
+number = 4
+set = "v4"
+category = "ml-fundamentals"
+tracks = ["advanced"]
+
+# GENERATED from the grader spec — edit python/torchleet/problems/*.py, then run: generate.py hints
+hints = [
+  "Start from the constant that minimizes squared error, F_0 = mean(y). For squared loss the negative gradient at each point is just the residual y - F(x), so every stage fits a small regression tree to the current residuals.",
+  "Write a regression tree whose splits minimize SSE_left + SSE_right and whose leaves predict the mean target. After sorting a feature, SSE_L + SSE_R = sum(r^2) - (S_L^2/n_L + S_R^2/n_R), where S_L is a prefix sum (cumsum) of the sorted targets.",
+  "Update F <- F + learning_rate * tree(X) after each stage and predict F_0 + learning_rate * sum of all tree outputs. staged_predict yields that running sum after each tree; return a new tensor each time rather than mutating one in place.",
+]
+
+[notebooks]
+question = "gradient-boosting.ipynb"
+solution = "gradient-boosting_SOLN.ipynb"
+
+[grading]
+tier = "A"        # A=auto-graded B=partial C=not auto-graded
+entries = ["GradientBoostingRegressor"]
+extras = []
+device = "cpu"

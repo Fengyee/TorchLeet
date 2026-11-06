@@ -1,0 +1,25 @@
+id = "pca"
+title = "Principal Component Analysis via SVD"
+description = "Implement PCA from the SVD of the centered data: orthonormal components, unbiased explained variances, projection and reconstruction."
+difficulty = "easy"
+number = 2
+set = "v4"
+category = "ml-fundamentals"
+tracks = ["basics"]
+
+# GENERATED from the grader spec — edit python/torchleet/problems/*.py, then run: generate.py hints
+hints = [
+  "Center the data first: PCA finds directions of maximum variance around the mean, not around the origin.",
+  "Take the thin SVD of the centered data, Xc = U S V^T. The rows of V^T are the principal directions, already sorted by decreasing singular value.",
+  "The covariance is Xc^T Xc / (N - 1) = V diag(S^2 / (N - 1)) V^T, so the explained variances are S^2 / (N - 1). Project with (X - mean) @ components.T and reconstruct with Z @ components + mean.",
+]
+
+[notebooks]
+question = "pca.ipynb"
+solution = "pca_SOLN.ipynb"
+
+[grading]
+tier = "A"        # A=auto-graded B=partial C=not auto-graded
+entries = ["pca_fit", "pca_transform", "pca_inverse_transform"]
+extras = []
+device = "cpu"
