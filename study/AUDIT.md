@@ -243,8 +243,52 @@
 - `memory-flops-estimation` 中所有数字（Llama-2-7B 6,738,415,616 参数、AdamW 107.8 GB、KV cache 0.5 MiB/token、ZeRO 各阶段每卡显存等）重新计算无误。
 - int8 题的“float32 累加会被抓住”检查是确定性的，不会在其他 BLAS 上误杀正确代码。
 
+### 第一轮结束时的状态
+
+- 98 道题（72 道原题 + 26 道新题），其中 91 道自动评分；评分器回归测试全部通过；`generate.py check` 0 个问题。
+
+---
+
+## 第二轮：查漏补缺
+
+第一轮之后又做了一轮，目标是：内容覆盖的缺口、从未被独立核查过的学习文档、题目 notebook 和答案/评分器之间的漂移、工具链。每一项改动同样由一个 agent 完成、另一个 agent 独立复核。
+
+### 新增 10 道题（全部独立复核）
+
+| 题目 | 内容 | 复核发现并修复 |
+|---|---|---|
+| `v4/generative/vq-vae` | 最近邻量化、straight-through、codebook + β·commitment loss、EMA 码本（Laplace 平滑）、perplexity | 对照 Sonnet / rosinality / lucidrains 源码确认“缓冲区存原始计数”的约定并写进题面；补充 residual VQ / Gumbel 追问 |
+| `v4/generative/diffusion-parameterizations` | 线性 / cosine schedule、ε/x₀/v/score 互换、SNR、min-SNR-γ 权重、zero terminal SNR、DDPM 后验 | 公式全部对照论文和 diffusers 0.31 源码确认；float32 再转 float64 的写法给出准确诊断 |
+| `v4/vision/roi-align` | 与 `torchvision.ops.roi_align` / `roi_pool` 完全一致的 RoIAlign 和 RoIPool | 用真实 torchvision 0.29 交叉验证（误差 ~1e-15）；无问题 |
+| `v4/vision/segmentation-metrics` | bincount 混淆矩阵、ignore_index、IoU/Dice、数据集级 mIoU、流式累加器 | **追问里 Jensen 不等式方向写反**（mean Dice ≤ f(mIoU)）；两处评分器漏洞 |
+| `v4/vision/self-supervised-losses` | SimCLR NT-Xent、DINO loss（centering + sharpening，与官方 `main_dino.py` 一致）、EMA teacher | 无实质问题 |
+| `v4/vision/vit-components` | patch embedding、pos-embed 插值、DropPath、LayerScale、pre-norm block、小 ViT | **评分器过严**：照抄 timm 的 `antialias=True` 会被判错 → 两种都接受；ViT 原论文用的是线性插值而非 bicubic |
+| `v4/systems/tensor-parallel` | Megatron 列/行切分、f/g 共轭算子、head 对齐的 QKV 切分、一次 all-reduce | 生成器形式的切分函数会让检查空转 → 修复 |
+| `v4/systems/sequence-packing` | FFD 打包、position ids、flash-attn varlen `cu_seqlens`、标签、文档因果 mask | **评分器过严**：等长序列的排序顺序被评分，用 `argsort` 的正确实现会失败 → 只比较每行的长度序列 |
+| `v4/systems/conv-bn-fusion` | Conv/Linear + BN 融合、RepVGG 三分支合并 | QARepVGG 的原因写错（应为 custom L2 下的激活方差，换成普通 weight decay 后才出现 identity-BN 异常权重）；题目 TODO 泄露答案；`repvgg_merge` 调用 PyTorch 融合函数未被检测 |
+| `v4/ml-fundamentals/ab-testing` | z-test（pooled）、Wald CI、向量化 bootstrap、样本量、SRM、CUPED | 闭式结果与 scipy/statsmodels 一致；统计检查对正确实现的误判率 ≤ 5e-6；样本量公式的约定写得更明确 |
+
+### 原来没有评分器的题：7 → 1
+
+`xai`（Grad-CAM，与 autograd 参考实现和 GAP+linear 闭式解精确比对）、`save-model`、`preloaded-dataset`、`augmentation`、`create-embeddings`（pooling 函数，新增 `_SOLN`）、`cuda-amp`（在 CPU 上检验 GradScaler 逻辑）现在都有评分器。复核修掉了两处**误杀正确答案**的问题：augmentation 只接受一组精确到 1e-5 的 CIFAR 统计量（四舍五入的常量、另一组常见 std 都会失败）；preloaded-dataset 会拒绝保留调用方数组引用的正确实现。`tensorboard` 仍不评分（只有两行日志 API 调用）。
+
+### 学习文档的独立核查
+
+| 文档 | 主要发现 |
+|---|---|
+| `ml-breadth.md` | 扩散 U-Net 的时间条件写成了 AdaGN（只有 ADM 如此；DDPM/SD 是加到 ResBlock 特征上）；FID 没说是**平方**距离；SD3 的公式和本仓库 flow matching 的时间方向混用了符号；x₀-预测“会模糊”是民间说法（改为权重论证）；ViT“在 IN-21k 上就超过 ResNet”不准确；硬件数字未区分 dense/sparse；Kaplan vs Chinchilla 的分歧归因。新增 SAM、DETR 匹配、高分辨率 VLM 输入、对比 vs 生成式预训练、consistency models、扩散偏好微调、文生图评测等问答；学习计划每一道自测题现在都能在文档里找到答案。 |
+| `ml-system-design.md` | Faiss nlist 经验公式的出处用错；SSD 精排的 I/O 预算不成立（约 150 万次随机读/秒）；视频解码成本低估；PDQ 匹配是汉明距离搜索不是精确查表；补充 A/B 测试的分析单元、delta method、CUPED、SRM、peeking、多重比较。 |
+| `pytorch-cheatsheet.md` | **BN 的 `running_var` 存的是无偏方差**（原文说有偏，而这恰好是第 1 周自测题）；`finfo.min` 掩码只有相加两次或 fp16 才会溢出；batch=1 的 BatchNorm2d 不报错；`torch.compile` 重编译行为过时；`cross_entropy` 的类别标签必须是 int64。 |
+
+### notebook 与工具链
+
+- **72 道原题中至少 63 道的 question notebook 没有 `check()` 评分单元格**（学生只能猜入口函数名）→ 全部补上；几处 stub 会“静默什么都不做”让测试误以为通过 → 改为抛错；删掉与当前代码不一致的旧输出（旧初始化的结果、过期的准确率）。
+- 本地 MCP 导师的题库是上游的手工副本（没有 v4、提示过时）→ 现在由 `generate.py mcp` 从 manifest 生成，并包含 4 周计划这条学习路径。
+- manifest 的 `grading.extras` 改为从评分器同步（只列评分所需的包）。
+- Dockerfile 补装 scikit-learn；README / 学习计划中“需要 GPU”的说法改正（所有题都能在 CPU 上做；Triton 用 `TRITON_INTERPRET=1`，仅 Linux）。
+
 ### 最终状态
 
-- 98 道题（72 道原题 + 26 道新题），其中 91 道自动评分：每一道的标准答案都通过自己的评分器（`scripts/validate_specs.py`）。7 道不评分的是纯演示/依赖外部资源的题（tensorboard、save-model、augmentation、cuda-amp、xai、create-embeddings、preloaded-dataset）。
-- 评分器回归测试 `python/test_grader.py`：全部通过（新增了 RoPE interleaved、GQA tiled、KV-cache prefill 等用例）。
-- `scripts/generate.py check`：0 个问题。
+- 108 道题（72 道原题 + 36 道新题），其中 **107 道自动评分**：`scripts/validate_specs.py` 106 道通过、0 失败，1 道跳过——augmentation 需要 torchvision 才能运行它的标准答案，装上 torchvision 后也通过。
+- 评分器回归测试 `python/test_grader.py`：24/24（新增“正确但写法不同必须通过”的用例：不稳定排序的 FFD、E5 风格 pooling、保留原数组的 Dataset；以及对应的错误写法）。
+- `scripts/generate.py check`：108 个 manifest，0 个问题。

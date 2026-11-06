@@ -286,6 +286,104 @@ def ckpt_inputs_only(fn, *args):
     return CkptFnInputsOnly.apply(fn, *args)
 
 
+# ------------------------------------------------------------------ sequence-packing
+def _pack(seqs, max_len, pad_id, order):
+    for t in seqs:
+        if len(t) == 0 or len(t) > max_len:
+            raise ValueError("every sequence needs 1..max_len tokens")
+    bins = []                                          # [used, [doc indices]]
+    for i in order:
+        for b in bins:
+            if b[0] + len(seqs[i]) <= max_len:
+                b[0] += len(seqs[i]); b[1].append(i); break
+        else:
+            bins.append([len(seqs[i]), [i]])
+    ids, pos, doc, seg = [], [], [], []
+    for used, members in bins:
+        pad = max_len - used
+        ids.append([t for i in members for t in seqs[i].tolist()] + [pad_id] * pad)
+        pos.append([p for i in members for p in range(len(seqs[i]))] + [0] * pad)
+        doc.append([i for i in members for _ in range(len(seqs[i]))] + [-1] * pad)
+        seg += [len(seqs[i]) for i in members]
+    mk = lambda x: torch.tensor(x, dtype=torch.long).view(-1, max_len)
+    cu = torch.tensor([0] + list(torch.tensor(seg, dtype=torch.long).cumsum(0).tolist()),
+                      dtype=torch.int32)
+    return mk(ids), mk(pos), mk(doc), cu
+
+
+def pack_unstable_argsort(seqs, max_len, pad_id=0):
+    """FFD whose tie-break among equal lengths is whatever an unstable sort gives."""
+    lengths = torch.tensor([len(t) for t in seqs], dtype=torch.long)
+    return _pack(seqs, max_len, pad_id, torch.argsort(lengths, descending=True).tolist())
+
+
+def packed_labels(input_ids, doc_ids):
+    nxt = F.pad(input_ids[:, 1:], (0, 1), value=-100)
+    nxt_doc = F.pad(doc_ids[:, 1:], (0, 1), value=-2)
+    return nxt.masked_fill(~((nxt_doc == doc_ids) & (doc_ids >= 0)), -100)
+
+
+def document_causal_mask(doc_ids):
+    i = torch.arange(doc_ids.shape[1])
+    return (doc_ids[:, :, None] == doc_ids[:, None, :]) & (i[:, None] >= i[None, :])
+
+
+def mask_padding_sees_all(doc_ids):
+    """Padding rows attend everywhere (HF-style unmasking) — not this problem's convention."""
+    return document_causal_mask(doc_ids) | (doc_ids[:, :, None] < 0)
+
+
+# ------------------------------------------------------------------ create-embeddings
+def mean_pool(h, m):
+    m = m.unsqueeze(-1).to(h.dtype)
+    return (h * m).sum(1) / m.sum(1).clamp(min=1)
+
+
+def last_token_pool_e5(h, m):
+    """E5-Mistral's reference pooling: detect left padding, else index the last real token."""
+    if m[:, -1].sum() == m.shape[0]:
+        return h[:, -1]
+    return h[torch.arange(h.shape[0]), m.long().sum(1) - 1]
+
+
+def last_token_pool_row0(h, m):
+    """Decides the padding side from row 0 only."""
+    if m[0, -1] == 1:
+        return h[:, -1]
+    return h[torch.arange(h.shape[0]), m.long().sum(1) - 1]
+
+
+# ------------------------------------------------------------------ preloaded-dataset
+class KeepRawDataset(torch.utils.data.Dataset):
+    """Correct: converts once, but also keeps a reference to the caller's arrays."""
+    def __init__(self, X, y):
+        self.raw = (X, y)
+        self.X, self.y = torch.as_tensor(X), torch.as_tensor(y)
+        if len(self.X) != len(self.y):
+            raise ValueError("X and y lengths differ")
+
+    def __len__(self):
+        return len(self.X)
+
+    def __getitem__(self, i):
+        return self.X[i], self.y[i]
+
+
+class PerItemDataset(torch.utils.data.Dataset):
+    """Wrong: keeps a tensor for len() but converts numpy on every __getitem__."""
+    def __init__(self, X, y):
+        if len(X) != len(y):
+            raise ValueError("X and y lengths differ")
+        self.X_raw, self.y_raw = X, y
+        self.X = torch.as_tensor(X)
+
+    def __len__(self):
+        return len(self.X)
+
+    def __getitem__(self, i):
+        return torch.as_tensor(self.X_raw[i]), torch.as_tensor(self.y_raw[i])
+
+
 CASES = [
     # (label, expected, problem_id, args, kwargs)
     ("kv-cache canonical", True, "kv-cache", (), dict(KVCache=KVCache, CachedAttention=Attn)),
@@ -307,6 +405,18 @@ CASES = [
     ("ckpt correct", True, "gradient-checkpointing", (CkptFn, ckpt), {}),
     ("ckpt no dummy input", False, "gradient-checkpointing", (CkptFn, ckpt_no_dummy), {}),
     ("ckpt inputs-only grads", False, "gradient-checkpointing", (CkptFnInputsOnly, ckpt_inputs_only), {}),
+    ("packing: unstable FFD tie-break", True, "sequence-packing", (),
+     dict(pack_sequences=pack_unstable_argsort, packed_labels=packed_labels,
+          document_causal_mask=document_causal_mask)),
+    ("packing: padding attends to all", False, "sequence-packing", (),
+     dict(pack_sequences=pack_unstable_argsort, packed_labels=packed_labels,
+          document_causal_mask=mask_padding_sees_all)),
+    ("embeddings: E5 pooling", True, "create-embeddings-out-of-an-llm", (),
+     dict(mean_pool=mean_pool, last_token_pool=last_token_pool_e5)),
+    ("embeddings: padding side from row 0", False, "create-embeddings-out-of-an-llm", (),
+     dict(mean_pool=mean_pool, last_token_pool=last_token_pool_row0)),
+    ("preloaded: keeps caller's arrays", True, "preloaded-dataset", (KeepRawDataset,), {}),
+    ("preloaded: converts per item", False, "preloaded-dataset", (PerItemDataset,), {}),
 ]
 
 

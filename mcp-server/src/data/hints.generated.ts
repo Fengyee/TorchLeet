@@ -29,6 +29,11 @@ export const authoredHints: Record<string, string[]> = {
   "Without an activation between layers the whole stack collapses to one linear map.",
   "The last layer's out_features is your output dimension."
  ],
+ "save-model": [
+  "Everything here is torch.save / torch.load plus the state_dict methods. A state dict maps names to tensors — parameters and buffers such as BatchNorm's running statistics — so it loads without your class's code being pickled.",
+  "load_for_inference builds a fresh model with model_class(), loads the file with torch.load(path, map_location='cpu', weights_only=True), calls load_state_dict and then eval() — Dropout and BatchNorm behave differently in training mode.",
+  "A checkpoint is one dict with the keys 'epoch', 'model_state_dict' and 'optimizer_state_dict'. load_checkpoint calls load_state_dict on the model and on the optimizer it was given (not a new one) and returns checkpoint['epoch'] — without the optimizer state, momentum and Adam's moments restart from zero."
+ ],
  "cnn": [
   "CIFAR-10 images are 3x32x32 and there are 10 classes.",
   "Track the spatial size through each pool: 32 -> 16 after one 2x2 pool.",
@@ -38,6 +43,11 @@ export const authoredHints: Record<string, string[]> = {
   "Keep a hidden state h of shape (batch, hidden_dim), start it at zeros on every forward call, and update it once per timestep in a Python loop over seq_len.",
   "The update is h = tanh(x_t W_ih + h W_hh + b) with the same W_ih, W_hh and b at every step (store them as nn.Parameter); x_t is x[:, t] because the input is (batch, seq_len, input_dim).",
   "After the loop, the final h summarises the whole sequence: map it with nn.Linear(hidden_dim, 1) to get one prediction per sequence, shape (batch, 1)."
+ ],
+ "augmentation": [
+  "Both pipelines are a transforms.Compose list. The test pipeline only converts and normalises; the training pipeline adds the random augmentations in front.",
+  "PIL-space operations (RandomHorizontalFlip, RandomCrop) go before ToTensor, and Normalize goes last because it needs a tensor. The pad value of the crop is then a black pixel, as in the original images' borders.",
+  "Training: RandomHorizontalFlip(p=0.5), RandomCrop(32, padding=4), ToTensor(), Normalize(CIFAR10_MEAN, CIFAR10_STD). Test: ToTensor() and the same Normalize only — no random transform, so evaluation is deterministic."
  ],
  "benchmark": [
   "Flatten the 28x28 image (x.flatten(1)) and stack at least two hidden nn.Linear layers with a ReLU after each, ending in a Linear to 10 logits.",
@@ -53,6 +63,11 @@ export const authoredHints: Record<string, string[]> = {
   "LanguageModel(vocab_size, embed_size, hidden_size, num_layers): Embedding -> LSTM(batch_first=True) -> Linear -> Softmax.",
   "Predict the *next* token, so take the last timestep of the LSTM output (lstm_out[:, -1, :]) before the Linear — the result is (batch, vocab_size).",
   "torch.ao.quantization.quantize_dynamic(model, {nn.Linear, nn.LSTM}, dtype=torch.qint8) only rewrites modules it recognises, so build the model out of nn.Linear / nn.LSTM rather than raw matmuls."
+ ],
+ "cuda-amp": [
+  "float16 has a narrow exponent range: small gradients underflow to zero, so it needs loss scaling (an enabled GradScaler). bfloat16 has float32's range and needs none — return a GradScaler built with enabled=False so train_step can call it the same way on both paths.",
+  "Only the forward pass and the loss go inside torch.autocast(device_type=inputs.device.type, dtype=amp_dtype); backward runs outside it. Zero the gradients every step, and never cast the model itself to half precision.",
+  "Order matters: backward through the scaled loss, unscale the optimizer's gradients, clip them to max_norm=1.0, step through the scaler, then update the scale. Clipping before unscaling clips the scaled gradients (S times too big), and stepping the optimizer directly applies inf/NaN updates after an overflow that the scaler would have skipped."
  ],
  "cnn-param-init": [
   "config_init returns the initializer *function*, it does not run it — you use it as `model.apply(config_init('xavier'))`.",
@@ -84,6 +99,11 @@ export const authoredHints: Record<string, string[]> = {
   "End the generator with Tanh so samples live in [-1, 1], and the discriminator with Sigmoid so its output is a probability BCELoss can take.",
   "When you train the generator do NOT detach the fake batch — the gradient has to flow back through the discriminator into the generator.",
   "Training loop: D step = BCE(D(real), 1) + BCE(D(G(z).detach()), 0); G step = BCE(D(G(z)), 1) on a fake batch that is NOT detached (fresh noise, or the same G(z) the D step detached) — the non-saturating -log D(G(z)), not log(1 - D(G(z))). zero_grad the optimizer you are about to step before its backward()."
+ ],
+ "xai": [
+  "You need two tensors from the target layer: its output A (forward) and the gradient of the class score with respect to A (backward). A forward hook on target_layer can keep A; from there A.register_hook or torch.autograd.grad gives dy^c/dA. Keep the handle that register_forward_hook returns so you can remove the hook again.",
+  "Score each sample by the logit of its own class (gather along dim 1, never the softmax) and sum those scores, so one backward pass gives every sample its own gradient. alpha is that gradient averaged over the spatial dims (2, 3) only — not over the batch — and the map is ReLU of the alpha-weighted sum of A over the channel dim: shape (N, h, w), not normalised.",
+  "For a frozen model inside torch.no_grad(): run the forward under torch.enable_grad() on a detached copy of x that requires grad, so a graph exists without touching the parameters. Remove the hook in a finally block. upsample_cam: F.interpolate on cam.unsqueeze(1) with mode='bilinear', align_corners=False, then divide each map by its own amax over (H, W) plus a small eps such as 1e-8."
  ],
  "custom-autograd": [
   "forward(ctx, x, slope) returns slope * x * sigmoid(x); stash what backward needs with ctx.save_for_backward(x, slope), not as attributes on ctx.",
@@ -130,6 +150,11 @@ export const authoredHints: Record<string, string[]> = {
   "Even dimensions 2i get sin and odd dimensions 2i+1 get cos. The pair shares one frequency.",
   "i is 0, 1, ..., d_model/2 - 1, not the raw dimension. The frequency is 1 / 10000**(2i/d_model).",
   "It is a fixed function of position — register it as a buffer, not a parameter."
+ ],
+ "create-embeddings-out-of-an-llm": [
+  "Both poolings must ignore padding, and attention_mask (1 = real token, 0 = padding) says where it is. Turn it into a float of shape (batch, seq_len, 1) so it broadcasts against the (batch, seq_len, hidden) states.",
+  "Mean pooling: zero the padded states, sum over the sequence dim, and divide by each row's number of real tokens (the mask summed over seq_len, clamped to at least 1) — not by seq_len. Last-token pooling: find one position per row, then index hidden_states[arange(batch), positions].",
+  "The last real token sits at the last index where the mask is 1. With right padding that is (number of real tokens - 1); with left padding it is always seq_len - 1. seq_len - 1 minus the position of the first 1 in the mask flipped along seq_len covers both (argmax returns the first maximum)."
  ],
  "implement-attention-from-scratch": [
   "scores = q @ k.transpose(-2,-1) / sqrt(d_k), then softmax, then @ v.",
@@ -180,6 +205,11 @@ export const authoredHints: Record<string, string[]> = {
   "sigmoid(z) = 1 / (1 + exp(-z)).",
   "BCE = -mean(y*log(p) + (1-y)*log(1-p)); clamp p away from 0 and 1 first.",
   "Train with gradient descent on the BCE of sigmoid(Xw + b)."
+ ],
+ "preloaded-dataset": [
+  "A map-style dataset needs exactly two methods besides __init__: __len__ (how many samples) and __getitem__(idx) (one sample). DataLoader does the batching and shuffling by calling them.",
+  "Convert once, in __init__: torch.as_tensor accepts tensors, numpy arrays and lists. Check that X and y have the same number of samples there, and raise if they do not.",
+  "__len__ is the number of rows of X (its first dimension, not the feature count); __getitem__ returns the tuple (self.X[idx], self.y[idx]) — no dict, no batching inside the dataset."
  ],
  "buffered-loading": [
   "Pull buffer_size items from iter(base_dataset) into a list first; when the stream runs dry before that, you simply start with a smaller buffer.",
@@ -360,6 +390,11 @@ export const authoredHints: Record<string, string[]> = {
   "TP is the diagonal, FP the column sums minus the diagonal, FN the row sums minus the diagonal. For AUC, rank all scores (tied scores share their average rank); the rank-sum of the positives gives the Mann-Whitney U. For AP, sort descending, cumsum the labels, and evaluate precision and recall only at the LAST position of each run of equal scores.",
   "AUC = (sum of positive ranks - n_pos(n_pos+1)/2) / (n_pos * n_neg). AP = sum over distinct thresholds of (recall step) x precision. ECE: bin index from the max probability with torch.bucketize on the interior edges (right-closed bins), then per-bin sums of correct and confidence via bincount with weights; ECE = sum_b |sum(correct) - sum(conf)| / N."
  ],
+ "ab-testing": [
+  "Every function here is a few lines of float64 arithmetic. The standard normal CDF is torch.special.ndtr, its inverse (z_{1-alpha/2}) is torch.special.ndtri, and two-sided tail probabilities are torch.special.erfc(|z| / sqrt(2)). A chi-square with 1 degree of freedom is the square of a standard normal. Convert inputs with torch.as_tensor(x, dtype=torch.float64): int tensors divide into float32 otherwise.",
+  "The test asks 'how surprising is this diff if p_A == p_B?', so its SE uses the POOLED rate (x_A + x_B) / (n_A + n_B). The CI is built around the observed rates, so it uses the UNPOOLED SE. Bootstrap: draw an (n_boot, n_a) index matrix for a and a separate (n_boot, n_b) one for b with torch.randint(..., generator=generator), gather, take the row means, then torch.quantile at alpha/2 and 1 - alpha/2. CUPED's theta is the OLS slope of y on x.",
+  "Sample size: the test rejects when |diff| > z_{1-alpha/2} * SE0. Require that to happen with probability `power` when the true diff is d: sqrt(n) * |d| = z_{1-alpha/2} * sqrt(2 pbar (1 - pbar)) + z_power * sqrt(p1 q1 + p2 q2). Solve for n and take math.ceil. SRM: expected counts are N * r and N * (1 - r), chi2 = sum (obs - exp)^2 / exp, and p = erfc(sqrt(chi2 / 2)). CUPED: theta = mean(xc * yc) / mean(xc * xc) with xc = x - mean(x); return y - theta * xc."
+ ],
  "gradient-boosting": [
   "Start from the constant that minimizes squared error, F_0 = mean(y). For squared loss the negative gradient at each point is just the residual y - F(x), so every stage fits a small regression tree to the current residuals.",
   "Write a regression tree whose splits minimize SSE_left + SSE_right and whose leaves predict the mean target. After sorting a feature, SSE_L + SSE_R = sum(r^2) - (S_L^2/n_L + S_R^2/n_R), where S_L is a prefix sum (cumsum) of the sorted targets.",
@@ -405,6 +440,11 @@ export const authoredHints: Record<string, string[]> = {
   "torch.distributions.Beta cannot take a generator. A Beta(a, a) draw is G1 / (G1 + G2) with G1, G2 independent Gamma(a) draws, and torch._standard_gamma(concentration_tensor, generator=g) draws Gammas from your generator; torch.randperm and torch.randint take generator= too.",
   "CutMix: cut_h = int(H * sqrt(1 - lam)), cut_w likewise, centre (cy, cx) uniform over the image, clip the box edges to [0, H] and [0, W], copy that region from x[perm] into a clone of x, then set lam = 1 - box_area / (H * W) before mixing labels."
  ],
+ "segmentation-metrics": [
+  "Every metric here is a function of one C x C matrix of pixel counts. Build it once: flatten, keep only the pixels whose target is a real class (in range and not ignore_index), and turn each (target, pred) pair into ONE integer so a single counting op fills the whole matrix. After that, every metric is a combination of the diagonal, the row sums and the column sums.",
+  "index = target * C + pred, counted with torch.bincount(index, minlength=C * C) and reshaped to (C, C) so rows are targets; cast to int64 first (uint8 PNG masks overflow). TP = diag, FN = row sum - TP, FP = column sum - TP; IoU = TP / (TP + FP + FN), Dice = 2TP / (2TP + FP + FN). Divide in float64 and let 0 / 0 become NaN, then average with torch.nanmean.",
+  "keep = (target >= 0) & (target < C) & (target != ignore_index); if pred[keep] has anything outside [0, C) raise ValueError; cm = bincount(C * t + p, minlength=C*C).view(C, C). iou = diag / (rows + cols - diag); mean_iou = nanmean(iou); pixel accuracy = diag.sum() / cm.sum(); mean class accuracy = nanmean(diag / rows). SegMetric holds a (C, C) int64 buffer, adds each batch's matrix in update(), and compute() runs the metric functions on the sum."
+ ],
  "detection-map": [
   "Split it in two: (1) turn a ranked list of TP/FP flags into precision and recall arrays, (2) turn those arrays into one number. AP is the area under the precision-recall curve after replacing each precision by the best precision achievable at that recall or higher.",
   "For AP: prepend recall 0 and append recall 1 with precision 0, take a reverse running max of precision (flip, cummax, flip), and sum (recall step) x (interpolated precision). For mAP: per class, sort ALL its predictions across images by score, keep a 'used' flag per GT, and only compare a prediction with GTs of the same class in the same image.",
@@ -420,6 +460,21 @@ export const authoredHints: Record<string, string[]> = {
   "In ResBlock the time projection gives (N, out_ch); index it with [:, :, None, None] so it broadcasts over H and W. When in_ch != out_ch the residual needs a 1x1 conv so skip(x) + h has matching channels. Return the sum as is, nothing after it.",
   "In UNet.forward keep a list: after each encoder level's ResBlock append h, then downsample (except at the last level). In the decoder walk the levels in reverse: torch.cat([h, skips.pop()], dim=1), a ResBlock whose in_ch is the sum of both widths, then upsample (except at the top level)."
  ],
+ "self-supervised-losses": [
+  "NT-Xent: stack both views into one (2N, D) batch so every view is an anchor and every other view is a candidate; the positive of view i is the other augmentation of the same image. DINO: the teacher only sees the 2 global crops, the student sees all crops, and a crop is never compared with itself. The EMA update is not part of training: keep autograd out of it.",
+  "NT-Xent: L2-normalise, build the (2N, 2N) cosine matrix divided by tau, and remove the diagonal from the softmax by setting it to -inf (not 0). Then it is cross-entropy with target i + N for i < N and i - N otherwise, averaged over 2N rows. DINO: teacher probabilities = softmax((t - center) / teacher_temp) computed on detached outputs; student log-probabilities = log_softmax(s / student_temp); the center update uses the TEACHER outputs and happens after the loss.",
+  "DINO: chunk the student output into ncrops blocks and the teacher's into 2; for each teacher block iq and student block v with v != iq, add the batch mean of the cross-entropy -sum_k q_k log p_k; divide by the number of terms, 2 * (ncrops - 1). Then, under no_grad, move the center: m times the old center plus (1 - m) times the mean of all 2B teacher rows. EMA: under no_grad, scale each teacher parameter by m in place and add (1 - m) times the matching student parameter; leave buffers alone."
+ ],
+ "vit-components": [
+  "A patch embedding is a convolution whose kernel equals its stride, and its output grid flattened row by row is the token sequence. Position embeddings are an image of D-channel pixels plus a few prefix rows that are not on the grid. DropPath drops a whole residual branch for a whole sample, not individual activations.",
+  "patchify_linear: F.unfold with kernel = stride = p returns (B, C*p*p, N), each column ordered (channel, row, col) - the same order as the Conv2d weight flattened to (D, C*p*p). interpolate_pos_embed: the grid rows are row-major (h, w, D) but F.interpolate wants (1, D, h, w), so reshape AND permute (a reshape alone scrambles them); bicubic with align_corners=False. DropPath: one Bernoulli(keep_prob) draw per sample, mask shape (B, 1, ..., 1), kept samples divided by keep_prob.",
+  "PatchEmbed: conv, flatten the two spatial dims, move channels last. interpolate_pos_embed: split off the prefix rows, reshape + permute the grid, interpolate to (new_h, new_w), permute back, flatten, and put the untouched prefix in front again. DropPath: identity unless training and drop_prob > 0, otherwise multiply by the scaled mask (no division when keep_prob is 0). ViTBlock: add DropPath(LayerScale(attention of LN1(x))) to x, then the same with LN2 and the MLP; create LayerScale whenever init_values is not None. ViT: CLS token in front of the patch tokens, add pos_embed, blocks, final LayerNorm, head on token 0; block i drops with the i-th of `depth` evenly spaced rates from 0 to drop_path_rate."
+ ],
+ "roi-align": [
+  "Each output bin is the AVERAGE of a small regular grid of bilinear samples, and nothing is rounded: the box is mapped to continuous feature-map coordinates (coord * spatial_scale, minus 0.5 when aligned). The sample positions are a tensor product of a y-grid and an x-grid, so compute them per axis, once per box, and reuse the two-tap gather from your bilinear-interpolation solution.",
+  "Per box and axis: roi = end - start (clamped to >= 1 only when aligned=False), bin = roi / out, grid = sampling_ratio if > 0 else ceil(roi / out), sample y = start + p * bin + (i + 0.5) * bin / grid. A sample with y < -1 or y > H contributes 0; otherwise clamp y to [0, H - 1] and use taps floor(y) and min(floor(y) + 1, H - 1). Divide the sum by max(grid_h * grid_w, 1).",
+  "For one box: build y of shape (out_h * grid_h,) and x of shape (out_w * grid_w,), turn each into (low index, high index, low weight, high weight) with the weights multiplied by the in-range mask; gather rows img[:, y_low] and img[:, y_high] and blend -> (C, out_h*grid_h, W); gather columns the same way -> (C, out_h*grid_h, out_w*grid_w); view as (C, out_h, grid_h, out_w, grid_w), sum dims 2 and 4, divide. roi_pool: round each scaled coordinate half away from zero (sign(v) * floor(|v| + 0.5)), roi = end - start + 1 (>= 1), bin p spans [floor(p*bin), ceil((p+1)*bin)) + start clipped to [0, H], max over it, 0 if empty."
+ ],
  "fid": [
   "FID fits a Gaussian to each feature set, so feature_statistics is just the mean and covariance of the rows. Use the unbiased covariance (divide by N - 1), the same convention as torch.cov(feats.T) and numpy.cov.",
   "The only hard term is Tr((S1 S2)^{1/2}). S1 S2 is not symmetric, but it is similar to the symmetric PSD matrix S1^{1/2} S2 S1^{1/2}, so both have the same non-negative eigenvalues lambda_i and the trace is sum(sqrt(lambda_i)).",
@@ -434,6 +489,16 @@ export const authoredHints: Record<string, string[]> = {
   "Everything follows from one straight line per pair: x_t = (1 - t) * x0 + t * x1 moves from noise (t = 0) to data (t = 1) at constant speed, so its time derivative — the regression target — is x1 - x0, independent of t.",
   "t has shape (N,) but x0 may be (N, D) or (N, C, H, W): reshape t to (N, 1, ..., 1) before mixing. When x0 / t are None, draw x0 with torch.randn_like(x1) and t with torch.rand(N) (one time per sample), then return the mean squared error between model(x_t, t) and x1 - x0.",
   "Euler: dt = 1 / num_steps; for k in 0 .. num_steps-1, call the model at t = k * dt (a (N,) tensor filled with that value) and update x = x + dt * v. Do not update x0 in place and do not call the model at t = 1."
+ ],
+ "vq-vae": [
+  "The quantizer is a nearest-neighbour lookup over the codebook, done for every spatial position at once: move the channel axis last and flatten so each row is one D-dimensional vector, compute all row-to-code distances in one shot, take the argmin, then undo the layout. The two loss terms have the same value; what makes them different is which side is detached.",
+  "z.permute(0, 2, 3, 1).reshape(-1, D) gives (B*H*W, D) rows (a plain reshape of a channel-first tensor mixes channels and positions). ||z - e||^2 = ||z||^2 - 2 z.e + ||e||^2 gives the (N, K) distance matrix with one matmul. loss = mse(z_q, z.detach()) + beta * mse(z, z_q.detach()); straight-through output z + (z_q - z).detach(). EMA: count the assignments n_k and sum the assigned vectors s_k (one_hot(idx).T @ z_flat), all under torch.no_grad().",
+  "EMA step in training mode only, after computing z_q with the current codebook: N = decay*N + (1-decay)*n; m = decay*m + (1-decay)*s; total = N.sum(); N_s = (N + eps) / (total + K*eps) * total; codebook = m / N_s[:, None] (keep the raw N in the buffer). Perplexity: p = bincount(indices.flatten(), minlength=K) / count; exp(-sum p log p) with 0 log 0 = 0 (torch.special.xlogy)."
+ ],
+ "diffusion-parameterizations": [
+  "Write everything in terms of the signal scale alpha_t = sqrt(abar_t) and the noise scale sigma_t = sqrt(1 - abar_t), with alpha^2 + sigma^2 = 1: x_t = alpha x0 + sigma eps is one linear equation, so knowing x_t and any one of (x0, eps, v) gives the others. Keep arrays 0-based (index i is the paper's t = i + 1) and give each sample its own abar.",
+  "Reshape the (B,) abar to (B, 1, ..., 1) before mixing with (B, C, H, W) tensors. v = alpha*eps - sigma*x0 is a rotation of (x0, eps) by the angle phi = atan2(sigma, alpha), so the inverse is the transposed rotation. Cosine schedule: evaluate f at t = 0..T, take betas = 1 - f[1:]/f[:-1], clip at max_beta, then cumprod(1 - betas). For min-SNR, convert the x0-space weight min(SNR, gamma) to the eps / v losses by how their errors scale.",
+  "eps weight = min(SNR, gamma)/SNR written as clamp(gamma/SNR, max=1) (finite at SNR = 0); v weight = min(SNR, gamma)/(SNR + 1). Zero terminal SNR: s = sqrt(cumprod(1 - betas)); s = (s - s[-1]) * s[0] / (s[0] - s[-1]); abar = s^2; alphas = [abar[0], abar[1:]/abar[:-1]]; betas = 1 - alphas. Posterior: build abar_prev = [1, abar[:-1]] and gather everything at t (index 0 must give mean x0 and variance 0 — do not index abar[t - 1])."
  ],
  "dit-block": [
   "adaLN-Zero turns the conditioning vector c into six (B, D) vectors with one Linear(D, 6D) after a SiLU: a shift, scale and gate for the attention branch and for the MLP branch. Initialise that Linear's weight and bias to zero — every gate is then 0, so each residual branch contributes nothing and the block starts as the identity.",
@@ -455,6 +520,11 @@ export const authoredHints: Record<string, string[]> = {
   "cosine = dot product of L2-normalized vectors; l2 = ||q||^2 - 2 q.d + ||d||^2, clamped at 0, and you want the SMALLEST k (topk(largest=False)). A chunk can be smaller than k, so take min(k, chunk) there.",
   "IVF: k-means (random initial centroids from the data, alternate assign / recompute the mean, keep a centroid whose cluster went empty) gives nlist centroids; add() appends each vector's global id to its nearest centroid's list; search() scores only the vectors in the nprobe nearest lists and pads with id -1 and the worst score. recall@k = |approx ∩ exact| / k averaged over queries (order does not matter, -1 never counts)."
  ],
+ "conv-bn-fusion": [
+  "In eval mode BatchNorm is a fixed per-channel affine map y = s * x + t, with s = gamma / sqrt(running_var + eps) and t = beta - s * running_mean. A per-OUTPUT-channel scale and shift commute with the convolution, so they can be pushed into the filters and the bias.",
+  "Dim 0 of a conv (or linear) weight is the output channel, also for grouped and depthwise convs: W' = W * s reshaped to (C_out, 1, 1, ...), b' = (b - mean) * s + beta. Use b = 0 when conv.bias is None, gamma = 1 and beta = 0 when bn.affine is False, and bn.eps INSIDE the square root. Start from copy.deepcopy(conv) and assign new nn.Parameters.",
+  "RepVGG: fuse each branch with its own BN; zero-pad the fused 1x1 kernel by one pixel on every side so it lands at index [1, 1] of a 3x3; the identity BN is the fusion of a 3x3 'identity conv' whose kernel is 1 at [o, o % (C // groups), 1, 1] and 0 elsewhere; then add the three kernels and the three biases into one conv with kernel 3, padding 1 and the branches' stride and groups."
+ ],
  "int8-quantization": [
   "Symmetric: qmax = 2^(b-1) - 1 (127 for 8 bits) and the scale maps the largest |x| exactly onto qmax. Asymmetric: the 2^b - 1 steps span [min(x.min(), 0), max(x.max(), 0)] and the zero point is the integer code that represents 0.0.",
   "Per-channel along `axis` means one amax per index of that dimension: reduce |x| over every OTHER dim, then reshape the (C,) scale to broadcast (size C at `axis`, 1 elsewhere). Guard amax == 0 so the scale stays positive. Round with torch.round before casting — .to(torch.int8) alone truncates toward zero.",
@@ -465,10 +535,20 @@ export const authoredHints: Record<string, string[]> = {
   "A gated (SwiGLU) MLP has three d x d_ff matrices (gate, up, down), a plain MLP two. RMSNorm has a weight only (d); LayerNorm has weight + bias (2d). Tied embeddings mean the LM head reuses the embedding matrix, so count it once. bias=True adds one vector per Linear in attention and MLP (its out_features), never on the LM head.",
   "Memory per parameter: fp32 = 4 (weights) + 4 (grads) + optimizer; bf16/fp16-mixed = 2 + 2 + 4 (fp32 master copy) + optimizer; AdamW/Adam add 8 (m and v in fp32), SGD with momentum 4, plain SGD 0. KV cache = 2 (K and V) * batch * seq_len * n_layers * n_kv_heads * head_dim * bytes. Training FLOPs = 6 * N * D: 2ND forward, 4ND backward."
  ],
+ "sequence-packing": [
+  "Packing is a bin-packing problem: rows are bins of capacity max_len. Sort longest first, then each document goes into the first row that still has room. Everything else (positions, labels, mask) can be derived from doc_ids, the per-token document index.",
+  "Keep a list of row contents and a list of free space per row; a document of length n goes to the lowest r with free[r] >= n. cu_seqlens is a 0 followed by the cumulative sum of the document lengths in row-major order, as int32. Labels: compare each doc id with its right neighbour (a shifted slice of doc_ids). Mask: broadcast a (R, L, 1) view of doc_ids against a (R, 1, L) view.",
+  "Labels: start from a tensor full of -100; for every column but the last, copy the NEXT token wherever the next position belongs to the same document and the current position is not padding. Mask: AND the same-document comparison with a lower-triangular (causal) L x L matrix. Keep the comparison -1 == -1 as True — padding then forms its own causal block, so every row has at least its diagonal and no softmax row is all -inf."
+ ],
  "ring-allreduce": [
   "Give every rank a private working copy split into W chunks with torch.tensor_split (sizes differ by at most one, empty chunks are fine). Phase 1 (reduce-scatter) leaves each rank owning one fully-summed chunk; phase 2 (all-gather) passes those finished chunks around the ring.",
   "Reduce-scatter step s: every rank r first sends chunk (r - s) % W to rank (r + 1) % W, then every rank receives from rank (r - 1) % W and ADDS the message into chunk (r - 1 - s) % W. After W - 1 steps rank r owns the complete sum of chunk (r + 1) % W.",
   "All-gather step s: rank r sends chunk (r + 1 - s) % W, receives into chunk (r - s) % W and OVERWRITES it (copy_, never +=). For DDP: torch.cat the trainable grads (zeros_like(p) where p.grad is None) into one flat vector per replica, all-reduce once, divide by W, then torch.split by p.numel() and view_as(p) to write the grads back."
+ ],
+ "tensor-parallel": [
+  "Translate Megatron's Y = XA into PyTorch first: nn.Linear stores W = A^T with shape (out, in). Column-parallel = each rank owns a slice of the OUTPUT features (rows of W, dim 0, plus that slice of the bias); row-parallel = each rank owns a slice of the INPUT features (columns of W, dim 1) and produces a partial sum of the full output, so the bias cannot be split.",
+  "f and g are torch.autograd.Functions whose forward takes (ctx, comm, *tensors) and returns a tuple; backward must return one gradient per forward input, so its first value is None (for comm). f: forward passes the W tensors through unchanged, backward makes ONE all-reduce of the W incoming gradients. g: forward makes the one all-reduce, backward passes the W gradients straight through. comm.all_reduce on its own is not differentiable — exactly like NCCL.",
+  "MLP: run f on the inputs; on each rank apply the local column-parallel linear and the activation, then multiply by that rank's row-parallel weight WITHOUT a bias; run g on the W partial sums; add the replicated b2 to each result. Attention: same skeleton — split the local fused projection along its last dim into this rank's q, k, v, view them as n_heads // W heads of size d // n_heads, run causal attention, merge the heads and multiply by the rank's w_o slice. shard_qkv: column-shard W_q, W_k and W_v (and the three bias thirds) separately, then concatenate rank r's three pieces."
  ]
 };
 
