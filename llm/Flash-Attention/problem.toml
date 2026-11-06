@@ -1,14 +1,15 @@
 id = "flash-attention"
 title = "Flash Attention"
+description = "Implement the FlashAttention forward pass — tiled attention with an online softmax (running max, running denominator, rescaled accumulator) and the logsumexp output — in PyTorch, then as a Triton kernel."
 difficulty = "medium"
 frequency = "emerging"   # very-likely | common | emerging (derived from company reports)
 set = "v2"
 
 # GENERATED from the grader spec — edit python/torchleet/problems/*.py, then run: generate.py hints
 hints = [
-  "Keep a running max, a running denominator l, and a running output accumulator; on each K/V tile rescale all three by alpha = exp(prev_max - new_max).",
-  "Divide the accumulator by l only once, after the loop — not inside it.",
-  "L is the logsumexp of the scaled scores: running_max + log(l) at the end.",
+  "Walk K/V in tiles and never build the full score matrix. Per query row keep a running max m, a running softmax denominator l and an unnormalized output accumulator, starting from -inf, 0 and 0.",
+  "When a tile raises the max to m_new, rescale l and the accumulator by alpha = exp(m - m_new) before adding the tile: l = alpha*l + p.sum(-1), acc = alpha*acc + p @ V_tile, with p = exp(s - m_new).",
+  "Divide the accumulator by l only once, after the last tile. L is the logsumexp of the scaled scores: m + log(l) at the end.",
 ]
 
 [notebooks]

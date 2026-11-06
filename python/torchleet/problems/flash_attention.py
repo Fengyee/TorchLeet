@@ -1,8 +1,9 @@
 """flash-attention — tiled attention with an online softmax.
 
 The graded entry is the PyTorch implementation, which runs anywhere. The Triton
-kernel is checked too, but only when a GPU with Triton is actually present — it
-is reported SKIPPED otherwise, never passed.
+kernel is checked too, but only when a GPU with Triton is present or Triton's CPU
+interpreter is on (TRITON_INTERPRET=1) — it is reported SKIPPED otherwise, never
+passed.
 
 The load-bearing check is tile-size invariance: a correct online softmax gives
 the same answer whatever block sizes it walks the keys in. An implementation
@@ -11,6 +12,7 @@ the reference at one tile size and diverges at another, which a single-tile-size
 comparison would miss entirely.
 """
 import math
+import os
 
 import torch
 import torch.nn.functional as F
@@ -22,10 +24,14 @@ DEVICE = "cpu"   # the PyTorch path is checkable anywhere; the kernel check self
 EXTRAS = []      # triton is only needed by the optional kernel check
 
 HINTS = [
-    "Keep a running max, a running denominator l, and a running output accumulator; "
-    "on each K/V tile rescale all three by alpha = exp(prev_max - new_max).",
-    "Divide the accumulator by l only once, after the loop — not inside it.",
-    "L is the logsumexp of the scaled scores: running_max + log(l) at the end.",
+    "Walk K/V in tiles and never build the full score matrix. Per query row keep a "
+    "running max m, a running softmax denominator l and an unnormalized output "
+    "accumulator, starting from -inf, 0 and 0.",
+    "When a tile raises the max to m_new, rescale l and the accumulator by "
+    "alpha = exp(m - m_new) before adding the tile: l = alpha*l + p.sum(-1), "
+    "acc = alpha*acc + p @ V_tile, with p = exp(s - m_new).",
+    "Divide the accumulator by l only once, after the last tile. L is the logsumexp "
+    "of the scaled scores: m + log(l) at the end.",
 ]
 
 B, N_Q, N_K, D = 2, 40, 48, 16
@@ -100,9 +106,12 @@ def check_output_is_an_average_of_values(ns):
 
 
 def check_triton_kernel(ns):
-    """GPU-only. Skipped, never passed, when it cannot actually be verified."""
-    if not torch.cuda.is_available():
-        raise Skip("requires CUDA — the Triton kernel is not verified on this machine")
+    """Needs a GPU, or Triton's CPU interpreter (TRITON_INTERPRET=1 set before the
+    kernel was defined). Skipped, never passed, when it cannot actually be verified."""
+    interpret = os.environ.get("TRITON_INTERPRET") == "1"
+    if not torch.cuda.is_available() and not interpret:
+        raise Skip("requires CUDA (or TRITON_INTERPRET=1) — the Triton kernel is not "
+                   "verified on this machine")
     try:
         import triton
     except ImportError:
@@ -113,11 +122,13 @@ def check_triton_kernel(ns):
 
     torch.manual_seed(0)
     d = 64
-    q = torch.randn(1, 64, d, dtype=torch.float16, device="cuda")
-    k = torch.randn(1, 128, d, dtype=torch.float16, device="cuda")
-    v = torch.randn(1, 128, d, dtype=torch.float16, device="cuda")
-    o = torch.empty(1, 64, d, dtype=torch.float16, device="cuda")
-    lse = torch.empty(1, 64, dtype=torch.float32, device="cuda")
+    dev = "cuda" if torch.cuda.is_available() else "cpu"
+    dt = torch.float16 if dev == "cuda" else torch.float32
+    q = torch.randn(1, 64, d, dtype=dt, device=dev)
+    k = torch.randn(1, 128, d, dtype=dt, device=dev)
+    v = torch.randn(1, 128, d, dtype=dt, device=dev)
+    o = torch.empty(1, 64, d, dtype=dt, device=dev)
+    lse = torch.empty(1, 64, dtype=torch.float32, device=dev)
     kernel[(triton.cdiv(64, 16), 1)](
         q, k, v, o, lse,
         *q.stride(), *k.stride(), *v.stride(), *o.stride(), *lse.stride(),
@@ -125,8 +136,11 @@ def check_triton_kernel(ns):
         BLOCK_SIZE_Q=16, BLOCK_SIZE_K=16,
     )
     exp = F.scaled_dot_product_attention(q.float(), k.float(), v.float())
-    assert torch.allclose(o.float(), exp, atol=1e-1, rtol=1e-2), \
+    assert torch.allclose(o.float(), exp, atol=2e-2, rtol=1e-2), \
         f"Triton kernel disagrees with torch attention (max diff {(o.float() - exp).abs().max():.2e})"
+    exp_lse = torch.logsumexp(q.float() @ k.float().transpose(-2, -1) / math.sqrt(d), dim=-1)
+    assert torch.allclose(lse, exp_lse, atol=1e-2, rtol=1e-2), \
+        f"Triton kernel's L is not the logsumexp of the scaled scores (max diff {(lse - exp_lse).abs().max():.2e})"
 
 
 CHECKS = [check_output_matches_torch_attention, check_logsumexp_is_correct,

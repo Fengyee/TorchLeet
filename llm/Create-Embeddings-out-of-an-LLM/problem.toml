@@ -1,5 +1,6 @@
 id = "create-embeddings-out-of-an-llm"
-title = "Create Embeddings Out Of An Llm"
+title = "Create Embeddings out of an LLM"
+description = "Turn a causal LM's (SmolLM2-135M) final hidden states into sentence embeddings with masked mean pooling or last-token pooling, and rank reviews by cosine similarity to a keyword."
 difficulty = "medium"
 frequency = "emerging"   # very-likely | common | emerging (derived from company reports)
 set = "v2"

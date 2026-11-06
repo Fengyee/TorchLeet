@@ -53,10 +53,30 @@ def check_matches_reference(ns):
         x = torch.randn(*shape)
         got = m(x)
         weight = list(m.parameters())[0]
-        expected = _ref_rms_norm(x, weight.data, eps=m.eps)
+        expected = _ref_rms_norm(x, weight.data, eps=getattr(m, "eps", 1e-8))
         assert torch.allclose(got, expected, atol=1e-6), (
             f"output disagrees with reference on {shape} "
             f"(max diff {(got - expected).abs().max():.2e})")
+
+
+def check_matches_torch_rmsnorm_with_trained_scale(ns):
+    """Against nn.RMSNorm, with a non-trivial gain: at init gamma is all ones, so a
+    module that forgets to multiply by gamma (or broadcasts it over the wrong axis)
+    would look correct until it is trained."""
+    torch.manual_seed(7)
+    dim = 6
+    m = ns.RMSNorm(dim)
+    eps = getattr(m, "eps", 1e-8)
+    oracle = nn.RMSNorm(dim, eps=eps)
+    gain = torch.randn(dim)
+    with torch.no_grad():
+        list(m.parameters())[0].copy_(gain)
+        oracle.weight.copy_(gain)
+    x = torch.randn(3, 4, dim) * 3
+    got, exp = m(x), oracle(x)
+    assert torch.allclose(got, exp, atol=1e-5), (
+        "disagrees with torch.nn.RMSNorm once the scale is not all ones (max diff "
+        f"{(got - exp).abs().max():.2e}) — multiply the normalized x by gamma, per feature")
 
 
 def check_gradient_flows(ns):
@@ -80,4 +100,5 @@ def check_numerically_stable(ns):
 
 
 CHECKS = [check_is_nn_module, check_output_shape, check_has_learnable_scale,
-          check_matches_reference, check_gradient_flows, check_numerically_stable]
+          check_matches_reference, check_matches_torch_rmsnorm_with_trained_scale,
+          check_gradient_flows, check_numerically_stable]

@@ -11,9 +11,9 @@ tracks = ["advanced", "llm-path"]
 
 # GENERATED from the grader spec — edit python/torchleet/problems/*.py, then run: generate.py hints
 hints = [
-  "Project Q/K/V, split d_model into num_heads chunks of d_head, attend, then concatenate.",
-  "Reshape to (batch, heads, seq, d_head) with view + transpose(1, 2).",
-  "After attention, transpose back and merge the heads before the output projection.",
+  "Project q, k and v with their weights (x @ W.T), split d_model into num_heads chunks of d_head = d_model // num_heads, attend within each head, then merge the heads and apply W_o.",
+  "Reshape (batch, seq, d_model) to (batch, num_heads, seq, d_head) with view + transpose(1, 2), and scale the scores by 1/sqrt(d_head), not 1/sqrt(d_model).",
+  "After softmax(scores) @ V, undo the split with transpose(1, 2) and .contiguous().view(batch, seq_q, d_model) before W_o. Positions where the mask is False get -inf before the softmax.",
 ]
 
 [notebooks]
