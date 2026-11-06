@@ -86,15 +86,18 @@ kernel checks, rather than failing them, when it can't run them.
 
 ## AI tutor (optional)
 
-The upstream project publishes an MCP server that turns Claude Code / Cursor / Codex into a
-no-spoilers tutor with progressive hints and mock-interview modes:
+`mcp-server/` turns Claude Code / Cursor / Codex into a no-spoilers tutor with progressive hints,
+the study plan as a learning path, and mock-interview modes. Build this fork's copy locally — its
+catalogue and hints are generated from the manifests, so it knows the `v4/` problems and the
+audited hints:
 
 ```bash
-claude mcp add torchleet -- npx -y torchleet-mcp
+cd mcp-server && npm install && npm run build
+claude mcp add torchleet -e TORCHLEET_ROOT=/ABS/PATH/TorchLeet -- node /ABS/PATH/TorchLeet/mcp-server/dist/src/index.js
 ```
 
-It serves the **upstream** problem catalogue, so it does not know about the `v4/` problems or
-the fixes in this fork; for those, use `hint()` from the grader and the study plan.
+Don't use the npm package `torchleet-mcp`: it serves the upstream catalogue. Details:
+[`mcp-server/README.md`](mcp-server/README.md).
 
 ## Maintaining
 
