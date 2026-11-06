@@ -92,9 +92,9 @@ status()                         # 本机已通过的题
 | D5 | 🟡 `v4/dl-fundamentals/debug-training` | 75m | **找 bug 题**：从症状推原因，RS/RE 面试高频 |
 | | 🟡 `torch/medium/cnn-scratch` | 60m | 自己实现 Conv2d / MaxPool（与 `F.conv2d` 对齐） |
 | | 🟡 `v3/data-loading/streaming-dataset` | 30m | IterableDataset 的 worker 分片 |
-| D6 | 🟡 `v4/ml-fundamentals/classification-metrics` ⭐ | 60m | P/R/F1、ROC-AUC（秩方法）、AP、ECE |
+| D6 | 🟡 `v4/ml-fundamentals/classification-metrics` ⭐ | 75m | P/R/F1、ROC-AUC（秩方法）、AP、ECE；面试通常只考其中 2–3 个，先做 roc_auc + AP |
 | | 🟡 `v4/ml-fundamentals/decision-tree` | 75m | CART + 向量化找最佳切分点 |
-| | 🟢 `v4/ml-fundamentals/pca` | 30m | SVD vs 特征分解 |
+| | 🟢 `v4/ml-fundamentals/pca` | 20m | SVD vs 特征分解 |
 | D7 | 复盘：重写本周卡住的题；读 system design §1 框架 | 2h | 自测见下 |
 
 **W1 自测**（周日出声回答，答不上的回 breadth 文档）：
@@ -118,13 +118,15 @@ status()                         # 本机已通过的题
 | | 🟡 `llm/Grouped-Query-Attention` | 40m | `repeat_interleave` 的分组方式 |
 | | breadth §4 Transformers | 30m | |
 | D10 | 🟡 `v3/modern-architectures/2d-positional-embeddings` | 45m | |
-| | 🔴 `v3/modern-architectures/vit-mae` | 120m | patchify、随机 mask（argsort 噪声）、只在 masked patch 上算 loss |
+| | 🔴 `v3/modern-architectures/vit-mae` | 90m | patchify、随机 mask（argsort 噪声）、只在 masked patch 上算 loss |
+| | breadth §3 CNN & vision（前半） | 30m | |
 | D11 | 🟡 `v3/modern-architectures/contrastive-loss-clip` ⭐ | 45m | 对称 InfoNCE、可学习温度 |
 | | 🟢 `v4/multimodal/siglip-loss` | 30m | sigmoid loss，为什么省 all-gather |
 | | 🟡 `v4/multimodal/vlm-connector` | 75m | MLP projector / Perceiver resampler / 图像 token 拼接 + label mask |
 | | breadth §5 多模态 | 30m | |
-| D12 | 🔴 `v3/modern-architectures/swin-transformer` | 120m | window partition、cyclic shift + mask、相对位置偏置 |
+| D12 | 🔴 `v3/modern-architectures/swin-transformer` | 90m | window partition、cyclic shift + mask、相对位置偏置（原仓库这里的 mask 是错的，见 AUDIT） |
 | | 🟡 `v4/multimodal/vector-search` | 60m | 精确 top-k（分块）+ IVF；recall@k |
+| | breadth §3 CNN & vision（后半：检测/分割/自监督） | 30m | |
 | D13 | **System design**：案例 a 视觉搜索 + 案例 d 图文检索 | 2h | 先自己 35 分钟写完整方案，再对照文档 |
 | | 🟡 `llm/Rotary-Positional-Embedding` | 45m | 相对位置性质 q_m·k_n 只依赖 m−n |
 | D14 | 复盘 + 重写卡住的题 | 2h | |
@@ -145,8 +147,9 @@ status()                         # 本机已通过的题
 | | 🔴 `torch/hard/GAN` | 60m | non-saturating loss、D 步骤 detach |
 | | breadth §6 生成模型（VAE/GAN 部分） | 30m | |
 | | 🟢 `v4/generative/fid` | 30m | 矩阵平方根的数值稳定写法 |
-| D16 | 🔴 `v3/modern-architectures/ddpm` ⭐ | 120m | 前向加噪闭式解、ε 预测、反向采样均值/方差、t=0 不加噪 |
+| D16 | 🔴 `v3/modern-architectures/ddpm` ⭐ | 90m | 前向加噪闭式解、ε 预测、反向采样均值/方差、t=0 不加噪 |
 | | 🟡 `v4/vision/unet` | 60m | 时间嵌入注入、skip concat、GroupNorm |
+| | 不看资料，在纸上推一遍 DDPM 的后验 q(x_{t-1}\|x_t,x_0) 和 μ_θ | 30m | RS 面试常让你当场推 |
 | D17 | 🔴 `v3/modern-architectures/ddim-cfg` | 90m | DDIM 确定性更新；CFG 公式与 w 的约定 |
 | | 🟡 `v4/generative/flow-matching` ⭐ | 75m | 线性路径、速度目标 x1−x0、Euler 采样（SD3/Flux 用的就是它） |
 | D18 | 🔴 `v4/generative/dit-block` | 90m | adaLN-Zero：初始化时 block 为恒等映射 |
@@ -177,7 +180,7 @@ status()                         # 本机已通过的题
 | D23 | 🔴 `v4/systems/ring-allreduce` | 90m | reduce-scatter + all-gather；DDP 梯度平均等价性 |
 | | 🔴 `v3/alignment-training/gradient-checkpointing` | 60m | |
 | | breadth §8 系统与效率 | 30m | |
-| D24 | 🟡 `llm/Flash-Attention` | 75m | online softmax 的重缩放（FlashAttention 的核心） |
+| D24 | 🔴 `llm/Flash-Attention`（只做 Part 1：PyTorch 版） | 75m | online softmax 的重缩放（FlashAttention 的核心）；Part 2 Triton kernel 可选，CPU 上用 `TRITON_INTERPRET=1` 也能跑 |
 | | 🟡 `v3/llm-decoding/top-p-sampling` | 30m | 越过阈值的那个 token 要保留 |
 | | 🟡 `v3/modern-architectures/mixture-of-experts` 或 `sliding-window-attention` | 60m | 二选一 |
 | D25 | **Mock 日**：2 场 coding mock（各 45 分钟，随机抽题）+ 1 场 system design mock（案例 f 训练基础设施） | 3h | 录屏/录音回听，挑出说不清楚的地方 |
@@ -222,4 +225,5 @@ status()                         # 本机已通过的题
 - 原仓库每道题都经过了审计（题面、公式、标准答案、评分器），发现的问题已修复，细节见 [`AUDIT.md`](AUDIT.md)。
 - 所有带评分器的题目，标准答案都必须通过自己的评分器（`scripts/validate_specs.py`）；评分器还用“看似正确的错误实现”测试过能否被拒绝。
 - **公司标签（Google/Meta/…）全部是推测的**（manifest 里标为 `inferred`），没有对应的面经出处。不要用它来判断“某公司一定会考”。
-- 新增的 `v4/` 题目每题都由一个 agent 编写、另一个 agent 独立复核。仍然建议：做题时如果觉得某个结论不对，以论文原文 / PyTorch 文档为准，并记下来。
+- 新增的 `v4/` 题目每题都由一个 agent 编写、另一个 agent 独立复核（复核又抓出并修复了一批评分器漏洞，见 AUDIT.md 末尾）。仍然建议：做题时如果觉得某个结论不对，以论文原文 / PyTorch 文档为准，并记下来。
+- 没有 GPU 也能完成整个计划：所有评分器都在 CPU 上运行；Triton 题可用 `TRITON_INTERPRET=1` 在 CPU 上验证正确性（但测不了性能）。
