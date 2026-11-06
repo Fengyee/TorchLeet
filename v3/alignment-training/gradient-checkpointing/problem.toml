@@ -15,6 +15,7 @@ hints = [
   "In backward: detach the saved inputs, requires_grad_ them, re-run fn inside torch.enable_grad(), then torch.autograd.backward(outputs, grad_outputs) — unlike autograd.grad on the inputs, that also reaches fn's own parameters.",
   "backward must return one gradient per forward argument — None for fn itself, then a gradient (or None) for each tensor input (read them off the detached copies).",
   "Autograd only calls backward if some tensor argument requires grad. When none does (plain input data), have checkpoint() pass an extra dummy tensor with requires_grad=True, or the wrapped layer's weights never train.",
+  "Dropout inside fn: save torch.get_rng_state() in forward, and in backward restore it inside torch.random.fork_rng() before recomputing, so the replay draws the same mask without disturbing the RNG stream of the rest of training.",
 ]
 
 [notebooks]

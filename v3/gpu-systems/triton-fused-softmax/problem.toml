@@ -24,7 +24,7 @@ solution = "triton-fused-softmax_SOLN.ipynb"
 tier = "A"        # A=auto-graded B=partial C=not auto-graded (SEEDED, confirm)
 entries = ["online_softmax_pytorch"]
 extras = ["triton"]
-device = "cuda"
+device = "cpu"    # kernel checks run on CUDA or with TRITON_INTERPRET=1
 
 [[companies]]
 name = "NVIDIA"

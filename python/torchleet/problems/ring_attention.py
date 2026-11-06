@@ -164,6 +164,25 @@ def check_causal_hides_the_future(ns):
         f"to later positions")
 
 
+def check_uneven_chunks(ns):
+    """seq_len need not be a multiple of num_devices: chunk sizes then differ by one,
+    and each device's accumulators must be sized by its own Q chunk."""
+    n = SEQ + 2                                  # 26 tokens over 4 devices
+    q, k, v = _qkv(7, n=n)
+    for causal in (False, True):
+        out = _forward(ns.RingAttention(num_devices=4), q, k, v, causal)
+        assert tuple(out.shape) == (n, HEAD_DIM), (
+            f"seq_len={n} over 4 devices: expected output {(n, HEAD_DIM)}, got "
+            f"{tuple(out.shape)}")
+        expected = _reference(q, k, v, causal=causal)
+        diff = (out - expected).abs().max().item()
+        assert torch.allclose(out, expected, atol=1e-5), (
+            f"seq_len={n} is not a multiple of 4 devices (causal={causal}): output "
+            f"differs from full attention (max diff {diff:.2e}) — split with "
+            f"torch.tensor_split and size each device's running max/sum/output by "
+            f"its own chunk, not by seq_len // num_devices")
+
+
 def check_ring_rotation_returns_to_start(ns):
     """n rotations of an n-device ring is the identity; one rotation is not."""
     attn = ns.RingAttention(num_devices=4)
@@ -190,5 +209,6 @@ CHECKS = [
     check_sharding_does_not_change_the_answer,
     check_causal_matches_masked_attention,
     check_causal_hides_the_future,
+    check_uneven_chunks,
     check_ring_rotation_returns_to_start,
 ]

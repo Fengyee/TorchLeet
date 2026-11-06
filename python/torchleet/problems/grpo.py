@@ -10,11 +10,12 @@ loss is probed through its defining behaviours (beta scales the KL term,
 positive advantage lowers the loss, the ratio clip flattens the objective, the
 min keeps the pessimistic branch).
 
-The KL term must behave like the DeepSeekMath estimator
-pi_ref/pi - log(pi_ref/pi) - 1: non-negative whichever side of the reference the
-policy is on, and with zero gradient where the policy equals the reference. The
-naive mean(log pi - log pi_ref) fails both — it goes negative, and its gradient
-is a constant push on every sampled token whose expectation on-policy is zero.
+The KL term must be the DeepSeekMath estimator pi_ref/pi - log(pi_ref/pi) - 1
+(its value is checked, which also rejects the ratio inverted): non-negative
+whichever side of the reference the policy is on, and with zero gradient where
+the policy equals the reference. The naive mean(log pi - log pi_ref) fails
+both — it goes negative, and its gradient is a constant push on every sampled
+token whose expectation on-policy is zero.
 """
 import math
 
@@ -319,6 +320,25 @@ def check_kl_is_nonnegative_below_the_reference_too(ns):
         f"estimator exp(d) - d - 1 with d = ref_logps - policy_logps")
 
 
+def check_kl_is_the_papers_estimator(ns):
+    """D_KL = pi_ref/pi - log(pi_ref/pi) - 1 per token. Its mirror image with the
+    ratio inverted, exp(-d) + d - 1, is also >= 0 and also 0 at the reference, so
+    only the value tells them apart."""
+    torch.manual_seed(9)
+    ref = torch.randn(B_, S_)
+    pol = ref + torch.randn(B_, S_) * 0.7
+    kl = float(torch.as_tensor(_loss(ns, pol, pol, torch.randn(B_), ref)["kl_div"]))
+    d = ref - pol
+    per_token = d.exp() - d - 1
+    mean, per_seq = float(per_token.mean()), float(per_token.sum(-1).mean())
+    flipped = float(((-d).exp() + d - 1).mean())
+    assert min(abs(kl - mean), abs(kl - per_seq)) < 1e-4, (
+        f"kl_div = {kl:.5f}, but the DeepSeekMath estimator exp(d) - d - 1 with "
+        f"d = ref_logps - policy_logps, averaged over tokens, is {mean:.5f}"
+        + (" — you have the ratio upside down (d = policy_logps - ref_logps)"
+           if abs(kl - flipped) < 1e-4 else ""))
+
+
 def check_kl_gradient_vanishes_at_the_reference(ns):
     """At pi == pi_ref the KL is at its minimum, so its gradient must be zero."""
     torch.manual_seed(8)
@@ -375,6 +395,7 @@ CHECKS = [
     check_clipping_caps_the_objective,
     check_min_keeps_the_pessimistic_branch,
     check_kl_is_nonnegative_below_the_reference_too,
+    check_kl_is_the_papers_estimator,
     check_kl_gradient_vanishes_at_the_reference,
     check_gradients_reach_the_policy,
 ]

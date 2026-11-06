@@ -14,7 +14,10 @@ The KL term is checked by its gradient, not just its value: on a large rollout t
 penalty's gradient must point along the gradient of the exact per-state
 KL(pi || pi_ref). That rejects the classic mean(log pi - log pi_ref) loss term,
 whose expected gradient on-policy is E[grad log pi] = 0 — it reports a sensible
-number and regularises nothing.
+number and regularises nothing. (k3's expected gradient is exactly that of the
+reverse KL(pi_ref || pi); near the reference the two agree, cosine ~0.9 here, so a
+threshold of 0.5 accepts k3, k2 and the exact KL alike.) The reported value must
+also estimate KL(pi || pi_ref), which rejects k3 with the ratio inverted.
 """
 import math
 
@@ -377,8 +380,37 @@ def check_kl_penalty_pulls_the_policy_toward_the_reference(ns):
         f"(cosine similarity {cos:.2f}). mean(log_pi - log_ref) over sampled actions "
         f"estimates the KL's value, but as a loss its expected gradient is "
         f"E[grad log_pi] = 0, so it does not hold the policy near the reference. "
-        f"Use k3 = exp(ref - new) - (ref - new) - 1 (as GRPO does), or put the "
-        f"per-token KL into the reward before GAE.")
+        f"Use k3 = exp(ref - new) - (ref - new) - 1 (as GRPO does). (Putting the "
+        f"per-token KL into the reward before GAE is the other standard placement, "
+        f"but this ppo_step takes kl_beta and must add the penalty to the loss.)")
+
+
+def check_kl_div_estimates_kl_from_policy_to_reference(ns):
+    """The reported kl_div must be (an estimate of) KL(pi || pi_ref) itself, not
+    some other divergence: k1, k2, k3 and the exact per-state KL all land within a
+    few percent of it on a large on-policy rollout. k3 with the log-ratio upside
+    down, exp(new - ref) - (new - ref) - 1, estimates chi^2 - KL instead (~50% high
+    here) while still passing the gradient check."""
+    p = _TokenPolicy(seed=21, scale=0.5)
+    ref = _TokenPolicy(seed=22, scale=0.5)
+    torch.manual_seed(0)
+    with torch.no_grad():
+        seqs, old, ids = _gen(ns, p, batch=1024)
+    zeros = torch.zeros(seqs.shape)
+    out = _step(ns, p, _ZeroValue(), ref, old, ids, seqs, zeros, zeros, kl_beta=1.0)
+    got = float(out["kl_div"])
+    with torch.no_grad():
+        states = ids[:, :SEQ]
+        logp = torch.log_softmax(p(states), -1)
+        logq = torch.log_softmax(ref(states), -1)
+        exact = float((logp.exp() * (logp - logq)).sum(-1).mean())
+    # averaged over tokens (as asked), or summed over each sequence's tokens
+    ok = any(abs(got - n * exact) <= 0.25 * n * exact for n in (1, SEQ))
+    assert ok, (
+        f"kl_div = {got:.4f}, but on this rollout KL(pi || pi_ref) averaged over "
+        f"tokens is {exact:.4f}. With d = ref_logp - new_logp, k3 is exp(d) - d - 1; "
+        f"exp(-d) + d - 1 (the ratio pi/pi_ref instead of pi_ref/pi) does not "
+        f"estimate KL(pi || pi_ref).")
 
 
 def check_gradients_reach_policy_and_value_models(ns):
@@ -412,5 +444,6 @@ CHECKS = [
     check_clipping_caps_the_objective,
     check_min_keeps_the_pessimistic_branch,
     check_kl_penalty_pulls_the_policy_toward_the_reference,
+    check_kl_div_estimates_kl_from_policy_to_reference,
     check_gradients_reach_policy_and_value_models,
 ]
