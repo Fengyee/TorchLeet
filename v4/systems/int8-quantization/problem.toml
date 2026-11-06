@@ -19,7 +19,7 @@ question = "int8-quantization.ipynb"
 solution = "int8-quantization_SOLN.ipynb"
 
 [grading]
-tier = "A"        # A=auto-graded B=partial C=not auto-graded
+tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["quantize_symmetric", "quantize_asymmetric", "dequantize", "int8_linear"]
 extras = []
 device = "cpu"

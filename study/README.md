@@ -9,7 +9,7 @@
 ## 0. 第一天开始前（30 分钟）
 
 ```bash
-pip install torch jupyter        # CPU 足够；Triton / FSDP 类题目需要 GPU，计划里已标为可选
+pip install torch jupyter        # CPU 就够；Triton 题额外 pip install triton，用 TRITON_INTERPRET=1 在 CPU 上跑
 pip install -e python/           # 安装本仓库的自动评分器 torchleet
 jupyter lab
 ```

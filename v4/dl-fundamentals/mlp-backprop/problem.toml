@@ -19,7 +19,7 @@ question = "mlp-backprop.ipynb"
 solution = "mlp-backprop_SOLN.ipynb"
 
 [grading]
-tier = "A"        # A=auto-graded B=partial C=not auto-graded
+tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["Linear", "ReLU", "softmax_cross_entropy", "MLP"]
 extras = []
 device = "cpu"

@@ -19,7 +19,7 @@ question = "normalization-layers.ipynb"
 solution = "normalization-layers_SOLN.ipynb"
 
 [grading]
-tier = "A"        # A=auto-graded B=partial C=not auto-graded
+tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["BatchNorm2d", "LayerNorm", "GroupNorm", "Dropout"]
 extras = []
 device = "cpu"

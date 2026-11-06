@@ -21,7 +21,7 @@ question = "mamba.ipynb"
 solution = "mamba_SOLN.ipynb"
 
 [grading]
-tier = "A"        # A=auto-graded B=partial C=not auto-graded (SEEDED, confirm)
+tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["selective_scan", "MambaBlock"]
 extras = ["matplotlib", "numpy"]
 device = "cpu"

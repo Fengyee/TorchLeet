@@ -21,7 +21,7 @@ question = "vit-mae.ipynb"
 solution = "vit-mae_SOLN.ipynb"
 
 [grading]
-tier = "B"        # A=auto-graded B=partial C=not auto-graded (SEEDED, confirm)
+tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["PatchEmbedding", "ViT", "MAE"]
 extras = ["matplotlib", "numpy"]
 device = "cpu"

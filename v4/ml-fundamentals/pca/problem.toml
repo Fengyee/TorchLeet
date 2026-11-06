@@ -19,7 +19,7 @@ question = "pca.ipynb"
 solution = "pca_SOLN.ipynb"
 
 [grading]
-tier = "A"        # A=auto-graded B=partial C=not auto-graded
+tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["pca_fit", "pca_transform", "pca_inverse_transform"]
 extras = []
 device = "cpu"

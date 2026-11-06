@@ -18,7 +18,7 @@ question = "buffered-loading.ipynb"
 solution = "buffered-loading_SOLN.ipynb"
 
 [grading]
-tier = "C"
+tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["ShuffleBufferDataset"]
 extras = []
 device = "cpu"

@@ -20,7 +20,7 @@ question = "lin-regression.ipynb"
 solution = "lin-regression_SOLN.ipynb"
 
 [grading]
-tier = "C"        # A=auto-graded B=partial C=not auto-graded (SEEDED, confirm)
+tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["LinearRegressionModel"]
 extras = []
 device = "cpu"

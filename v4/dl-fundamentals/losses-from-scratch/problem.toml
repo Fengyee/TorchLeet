@@ -19,7 +19,7 @@ question = "losses-from-scratch.ipynb"
 solution = "losses-from-scratch_SOLN.ipynb"
 
 [grading]
-tier = "A"        # A=auto-graded B=partial C=not auto-graded
+tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["cross_entropy", "binary_cross_entropy_with_logits", "sigmoid_focal_loss", "dice_loss"]
 extras = []
 device = "cpu"

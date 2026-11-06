@@ -19,7 +19,7 @@ question = "decision-tree.ipynb"
 solution = "decision-tree_SOLN.ipynb"
 
 [grading]
-tier = "A"        # A=auto-graded B=partial C=not auto-graded
+tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["DecisionTreeClassifier"]
 extras = []
 device = "cpu"

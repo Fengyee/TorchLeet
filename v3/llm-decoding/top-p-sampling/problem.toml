@@ -21,7 +21,7 @@ question = "top-p-sampling.ipynb"
 solution = "top-p-sampling_SOLN.ipynb"
 
 [grading]
-tier = "A"        # A=auto-graded B=partial C=not auto-graded (SEEDED, confirm)
+tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["top_p_sample"]
 extras = []
 device = "cpu"

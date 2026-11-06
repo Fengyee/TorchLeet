@@ -18,7 +18,7 @@ question = "streaming-dataset.ipynb"
 solution = "streaming-dataset_SOLN.ipynb"
 
 [grading]
-tier = "C"
+tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["StreamingDataset"]
 extras = []
 device = "cpu"

@@ -20,7 +20,7 @@ question = "custom-DNN.ipynb"
 solution = "custom-DNN_SOLN.ipynb"
 
 [grading]
-tier = "C"        # A=auto-graded B=partial C=not auto-graded (SEEDED, confirm)
+tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["DNNModel"]
 extras = []
 device = "cpu"

@@ -21,7 +21,7 @@ question = "swin-transformer.ipynb"
 solution = "swin-transformer_SOLN.ipynb"
 
 [grading]
-tier = "A"        # A=auto-graded B=partial C=not auto-graded (SEEDED, confirm)
+tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["window_partition", "window_reverse", "window_attention", "create_shifted_window_mask", "SwinBlock", "relative_position_index", "SwinBlockRelPosBias"]
 extras = []
 device = "cpu"

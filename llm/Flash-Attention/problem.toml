@@ -17,7 +17,7 @@ question = "flash-attention.ipynb"
 solution = "flash-attention_SOLN.ipynb"
 
 [grading]
-tier = "A"        # A=auto-graded B=partial C=not auto-graded (SEEDED, confirm)
+tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["flash_attention_pytorch"]
 extras = ["triton"]
 device = "cpu"

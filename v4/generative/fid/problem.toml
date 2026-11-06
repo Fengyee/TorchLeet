@@ -19,7 +19,7 @@ question = "fid.ipynb"
 solution = "fid_SOLN.ipynb"
 
 [grading]
-tier = "A"        # A=auto-graded B=partial C=not auto-graded
+tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["feature_statistics", "frechet_distance"]
 extras = []
 device = "cpu"

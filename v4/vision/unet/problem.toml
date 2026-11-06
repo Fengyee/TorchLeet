@@ -19,7 +19,7 @@ question = "unet.ipynb"
 solution = "unet_SOLN.ipynb"
 
 [grading]
-tier = "A"        # A=auto-graded B=partial C=not auto-graded
+tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["SinusoidalTimeEmbedding", "ResBlock", "UNet"]
 extras = []
 device = "cpu"

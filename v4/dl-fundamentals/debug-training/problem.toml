@@ -19,7 +19,7 @@ question = "debug-training.ipynb"
 solution = "debug-training_SOLN.ipynb"
 
 [grading]
-tier = "A"        # A=auto-graded B=partial C=not auto-graded
+tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["to_tensor", "compute_normalization_stats", "normalize", "make_model", "train_one_epoch", "evaluate"]
 extras = []
 device = "cpu"

@@ -226,6 +226,8 @@
 | `decision-tree`、`pca`、`gmm-em`、`classification-metrics`（新题） | 用 entropy 分裂、新数据用自己的均值中心化、协方差用旧均值更新、macro 平均漏掉只出现在预测里的类——均能通过 | 评分器漏洞 |
 | `normalization-layers`、`micrograd`（新题） | running stats 不在 `no_grad` 下更新（会进入计算图）能通过；在 `backward()` 里调大递归上限能绕过约束 | 评分器漏洞 |
 | `vector-search`（新题） | 从不更新质心的 k-means 能通过；确定性检查本身不稳定 | 漏洞 + 不稳定 |
+| `unet`、`dit-block`、`flow-matching`、`mixup-cutmix`、`vae`、`fid`（新题） | 评分器误杀允许的 dropout（U-Net）；放过题面明确排除的 embedding 布局和 erf 版 GELU（DiT）；3 个统计阈值偶尔会误杀正确实现（已放宽到约 6σ）；说法错误：β>1 的 β-VAE 仍是下界、FID 是 Fréchet 距离的**平方** | 误杀 + 漏洞 + 说法 |
+| `speculative-decoding`、`vit-mae`、`continuous-batching` | 原评分器依赖学生自己模型的初始化/参数命名/padding token：用 GPT 式 std=0.02 初始化的**正确**实现会被判失败 → 改用评分器自带的测试模型、按梯度流向而非参数名检查 | 误杀正确代码 |
 | `training-utilities`（新题） | 教科书“速度形式”的 SGD（`v = μv − ηg`）能通过——它只在学习率不变时与 `torch.optim.SGD` 等价，而原检查恰好全用常数学习率 → 加入变学习率轨迹检查 | 评分器漏洞 |
 | `losses-from-scratch`（新题） | “clamp 版稳定 BCE 在 x=0 处斜率为 −1”在 torch 2.15 中不成立（实际为 0） | 说法错误 |
 | `mlp-backprop`、`ring-allreduce`、`int8-quantization` 等（新题） | 多处说明性错误：`nn.Linear` 默认初始化方差是 He 的 1/6 而非 1/3；ZeRO-2 通信量与 DDP 相同；零点行和技巧属于 FBGEMM 而非 cuBLASLt | 说法错误 |
@@ -243,6 +245,6 @@
 
 ### 最终状态
 
-- 98 道题（72 道原题 + 26 道新题），其中 92 道自动评分：每一道的标准答案都通过自己的评分器（`scripts/validate_specs.py`）。
+- 98 道题（72 道原题 + 26 道新题），其中 91 道自动评分：每一道的标准答案都通过自己的评分器（`scripts/validate_specs.py`）。7 道不评分的是纯演示/依赖外部资源的题（tensorboard、save-model、augmentation、cuda-amp、xai、create-embeddings、preloaded-dataset）。
 - 评分器回归测试 `python/test_grader.py`：全部通过（新增了 RoPE interleaved、GQA tiled、KV-cache prefill 等用例）。
 - `scripts/generate.py check`：0 个问题。

@@ -22,7 +22,7 @@ question = "grpo.ipynb"
 solution = "grpo_SOLN.ipynb"
 
 [grading]
-tier = "A"        # A=auto-graded B=partial C=not auto-graded (SEEDED, confirm)
+tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["generate_group_completions", "compute_group_advantages", "grpo_loss"]
 extras = []
 device = "cpu"

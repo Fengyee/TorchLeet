@@ -19,7 +19,7 @@ question = "detection-map.ipynb"
 solution = "detection-map_SOLN.ipynb"
 
 [grading]
-tier = "A"        # A=auto-graded B=partial C=not auto-graded
+tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["average_precision", "mean_average_precision"]
 extras = []
 device = "cpu"

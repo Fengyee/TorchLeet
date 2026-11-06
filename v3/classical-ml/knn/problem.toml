@@ -21,7 +21,7 @@ question = "knn.ipynb"
 solution = "knn_SOLN.ipynb"
 
 [grading]
-tier = "B"        # A=auto-graded B=partial C=not auto-graded (SEEDED, confirm)
+tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["knn_predict"]
 extras = []
 device = "cpu"

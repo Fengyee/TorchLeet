@@ -21,7 +21,7 @@ question = "lora.ipynb"
 solution = "lora_SOLN.ipynb"
 
 [grading]
-tier = "A"        # A=auto-graded B=partial C=not auto-graded (SEEDED, confirm)
+tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["LoRALinear", "apply_lora", "merge_lora"]
 extras = []
 device = "cpu"

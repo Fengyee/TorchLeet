@@ -13,7 +13,7 @@ question = "augmentation.ipynb"
 solution = "augmentation_SOLN.ipynb"
 
 [grading]
-tier = "C"        # A=auto-graded B=partial C=not auto-graded (SEEDED, confirm)
+tier = "C"        # A = auto-graded by check(), C = not graded
 entries = []
 extras = ["matplotlib", "torchvision"]
 device = "cpu"

@@ -19,7 +19,7 @@ question = "bilinear-interpolation.ipynb"
 solution = "bilinear-interpolation_SOLN.ipynb"
 
 [grading]
-tier = "A"        # A=auto-graded B=partial C=not auto-graded
+tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["resize_bilinear", "resize_nearest"]
 extras = []
 device = "cpu"

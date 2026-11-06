@@ -19,7 +19,7 @@ question = "vlm-connector.ipynb"
 solution = "vlm-connector_SOLN.ipynb"
 
 [grading]
-tier = "A"        # A=auto-graded B=partial C=not auto-graded
+tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["MLPProjector", "PerceiverResampler", "merge_image_features"]
 extras = []
 device = "cpu"

@@ -11,7 +11,7 @@ question = "preloaded-dataset.ipynb"
 solution = "preloaded-dataset_SOLN.ipynb"
 
 [grading]
-tier = "C"
+tier = "C"        # A = auto-graded by check(), C = not graded
 entries = []
 extras = []
 device = "cpu"

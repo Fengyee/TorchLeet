@@ -21,7 +21,7 @@ question = "sliding-window-attention.ipynb"
 solution = "sliding-window-attention_SOLN.ipynb"
 
 [grading]
-tier = "A"        # A=auto-graded B=partial C=not auto-graded (SEEDED, confirm)
+tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["create_sliding_window_mask", "full_attention", "sliding_window_attention"]
 extras = []
 device = "cpu"

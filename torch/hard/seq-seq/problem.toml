@@ -22,7 +22,7 @@ question = "seq-to-seq-with-Attention.ipynb"
 solution = "seq-to-seq-with-Attention_SOLN.ipynb"
 
 [grading]
-tier = "C"        # A=auto-graded B=partial C=not auto-graded (SEEDED, confirm)
+tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["Encoder", "Decoder"]
 extras = []
 device = "cpu"

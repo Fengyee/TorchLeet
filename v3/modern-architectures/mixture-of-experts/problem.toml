@@ -21,7 +21,7 @@ question = "mixture-of-experts.ipynb"
 solution = "mixture-of-experts_SOLN.ipynb"
 
 [grading]
-tier = "A"        # A=auto-graded B=partial C=not auto-graded (SEEDED, confirm)
+tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["Expert", "MoELayer"]
 extras = []
 device = "cpu"

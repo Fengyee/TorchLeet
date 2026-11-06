@@ -21,7 +21,7 @@ question = "sinusoidal-q7-Question.ipynb"
 solution = "sinusoidal-q7.ipynb"
 
 [grading]
-tier = "A"        # A=auto-graded B=partial C=not auto-graded (SEEDED, confirm)
+tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["SinusoidalPositionalEmbedding"]
 extras = []
 device = "cpu"

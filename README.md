@@ -2,7 +2,7 @@
 
 <img src="torchleet-header.png" alt="TorchLeet" width="700">
 
-**<!--total-->68<!--/total--> PyTorch interview problems as Jupyter notebooks, with an auto-grader —
+**<!--total-->98<!--/total--> PyTorch interview problems as Jupyter notebooks, with an auto-grader —
 tuned for ML Engineer, Research Scientist and Research Engineer interviews.**
 
 </div>
@@ -60,7 +60,7 @@ On Colab, each question notebook has an "Open in Colab" badge; install the grade
 4. Only then open the `_SOLN` notebook. New `v4/` solutions end with *Why it works*, *Common bugs*
    and *Interview follow-ups* — read those even when you passed.
 
-<!--graded-->63<!--/graded--> of <!--total-->68<!--/total--> problems are auto-graded.
+<!--graded-->91<!--/graded--> of <!--total-->98<!--/total--> problems are auto-graded.
 
 ## What's inside
 

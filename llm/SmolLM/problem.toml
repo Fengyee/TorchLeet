@@ -21,7 +21,7 @@ question = "smollm-q12-Question.ipynb"
 solution = "smollm-q12.ipynb"
 
 [grading]
-tier = "B"        # A=auto-graded B=partial C=not auto-graded (SEEDED, confirm)
+tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["rotate_half", "apply_rotary_pos_emb", "repeat_kv", "RotaryEmbedder", "RopeAttention"]
 extras = ["transformers"]
 device = "cpu"

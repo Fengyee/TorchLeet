@@ -20,7 +20,7 @@ question = "BPE-q3.ipynb"
 solution = "BPE-q3-SOLN.ipynb"
 
 [grading]
-tier = "A"        # A=auto-graded B=partial C=not auto-graded (SEEDED, confirm)
+tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["get_vocab", "get_stats", "merge_vocab", "byte_pair_encoding"]
 extras = []
 device = "cpu"

@@ -21,7 +21,7 @@ question = "GAN.ipynb"
 solution = "GAN_SOLN.ipynb"
 
 [grading]
-tier = "C"        # A=auto-graded B=partial C=not auto-graded (SEEDED, confirm)
+tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["Generator", "Discriminator"]
 extras = []
 device = "cpu"

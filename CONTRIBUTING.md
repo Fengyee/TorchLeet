@@ -17,10 +17,11 @@ counts and the grader registry are all generated from the manifests, so **do not
 edit those by hand** - CI regenerates and diffs them.
 
 ```bash
+python3 scripts/generate.py all        # hints, tiers, badges, PROBLEMS.md, README counts, SOURCES.md, website data, problems.json
 python3 scripts/generate.py check      # validate manifests (CI gate)
 python3 scripts/generate.py coverage   # how much is auto-graded
-python3 scripts/generate.py badges     # refresh Colab badges
-python3 scripts/generate.py readme     # rebuild PROBLEMS.md + README counts
+python3 scripts/validate_specs.py      # every solution must pass its own grader
+python3 python/test_grader.py          # grader regression tests
 ```
 
 ## Adding a problem
@@ -30,7 +31,7 @@ python3 scripts/generate.py readme     # rebuild PROBLEMS.md + README counts
 2. Add the solution notebook.
 3. Write `problem.toml` (copy a neighbour's). `grading.entries` lists the
    functions or classes the solver must supply.
-4. Run `python3 scripts/generate.py check`.
+4. Run `python3 scripts/generate.py all` (it ends with `check`).
 
 ## Adding grading to a problem
 

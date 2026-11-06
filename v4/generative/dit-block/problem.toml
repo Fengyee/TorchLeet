@@ -19,7 +19,7 @@ question = "dit-block.ipynb"
 solution = "dit-block_SOLN.ipynb"
 
 [grading]
-tier = "A"        # A=auto-graded B=partial C=not auto-graded
+tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["modulate", "TimestepEmbedder", "DiTBlock", "patchify", "unpatchify"]
 extras = []
 device = "cpu"

@@ -21,7 +21,7 @@ question = "2d-positional-embeddings.ipynb"
 solution = "2d-positional-embeddings_SOLN.ipynb"
 
 [grading]
-tier = "A"        # A=auto-graded B=partial C=not auto-graded (SEEDED, confirm)
+tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["create_2d_sinusoidal_embeddings"]
 extras = []
 device = "cpu"

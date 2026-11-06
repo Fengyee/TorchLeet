@@ -19,7 +19,7 @@ question = "training-utilities.ipynb"
 solution = "training-utilities_SOLN.ipynb"
 
 [grading]
-tier = "A"        # A=auto-graded B=partial C=not auto-graded
+tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["SGD", "warmup_cosine_lr", "clip_grad_norm_", "EMA"]
 extras = []
 device = "cpu"

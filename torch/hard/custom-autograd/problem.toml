@@ -20,7 +20,7 @@ question = "custom-autgrad-function.ipynb"
 solution = "custom-autgrad-function_SOLN.ipynb"
 
 [grading]
-tier = "C"        # A=auto-graded B=partial C=not auto-graded (SEEDED, confirm)
+tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["LearnedSiLUFunction", "LinearRegressionModel"]
 extras = []
 device = "cpu"
