@@ -48,9 +48,31 @@ def _named(fn, name):
     return fn
 
 
-def _sgd_trajectory_check(label, momentum, weight_decay, nesterov, zero_inplace=False):
+def _set_lr(opt, lr):
+    """How a schedule sets the LR: param_groups for an Optimizer subclass, self.lr for a
+    plain class (the notebook's set_lr does the same)."""
+    groups = getattr(opt, "param_groups", None)
+    if groups:
+        for group in groups:
+            group["lr"] = lr
+    if hasattr(opt, "lr"):
+        opt.lr = lr
+    if not groups and not hasattr(opt, "lr"):
+        raise AssertionError(
+            "cannot change the learning rate of your SGD between steps: subclass "
+            "torch.optim.Optimizer (lr lives in param_groups) or store it as self.lr")
+
+
+# A warmup-then-cosine LR sequence for the changing-LR checks (all > 0).
+_CHANGING_LRS = [0.05 * (t + 1) / 5 if t < 5 else
+                 0.005 + 0.5 * (0.05 - 0.005) * (1 + math.cos(math.pi * (t - 5) / 15))
+                 for t in range(20)]
+
+
+def _sgd_trajectory_check(label, momentum, weight_decay, nesterov, zero_inplace=False,
+                          lrs=None):
     """Run solver SGD and torch.optim.SGD for 20 steps on identical nets and compare
-    every parameter after every step."""
+    every parameter after every step. With `lrs`, the LR is changed before every step."""
     def check(ns):
         torch.manual_seed(0)
         net = _Net()
@@ -58,7 +80,8 @@ def _sgd_trajectory_check(label, momentum, weight_decay, nesterov, zero_inplace=
         g = torch.Generator().manual_seed(1)
         xs, ys = torch.randn(20, 6, 5, generator=g), torch.randn(20, 6, 3, generator=g)
         lr = 0.05
-        cfg = f"(lr={lr}, momentum={momentum}, weight_decay={weight_decay}, nesterov={nesterov})"
+        cfg = (f"(lr={lr if lrs is None else 'changing'}, momentum={momentum}, "
+               f"weight_decay={weight_decay}, nesterov={nesterov})")
         # net.parameters() is a generator on purpose: a real call site passes one.
         opt = ns.SGD(net.parameters(), lr=lr, momentum=momentum,
                      weight_decay=weight_decay, nesterov=nesterov)
@@ -78,8 +101,18 @@ def _sgd_trajectory_check(label, momentum, weight_decay, nesterov, zero_inplace=
                 ref_opt.zero_grad()
             nn.functional.mse_loss(net(xs[t]), ys[t]).backward()
             nn.functional.mse_loss(ref(xs[t]), ys[t]).backward()
+            if lrs is not None:
+                _set_lr(opt, lrs[t])
+                _set_lr(ref_opt, lrs[t])
+            grads = {n: p.grad.clone() for n, p in net.named_parameters() if p.grad is not None}
             opt.step()
             ref_opt.step()
+            for n, p in net.named_parameters():
+                if n in grads:
+                    assert p.grad is not None and torch.equal(p.grad, grads[n]), (
+                        f"step() modified p.grad of {n} at step {t + 1} {cfg}. Compute "
+                        "g = grad + weight_decay*p out of place, and clone the first momentum "
+                        "buffer (a buffer that IS p.grad gets changed by buf.mul_())")
             cur = dict(net.named_parameters())
             want = dict(ref.named_parameters())
             if all(torch.equal(cur[n].detach(), prev[n]) for n in cur if n != "unused"):
@@ -94,7 +127,10 @@ def _sgd_trajectory_check(label, momentum, weight_decay, nesterov, zero_inplace=
                 d = (cur[n].detach() - want[n].detach()).abs().max().item()
                 assert torch.allclose(cur[n].detach(), want[n].detach(), atol=1e-5, rtol=1e-4), (
                     f"{n} differs from torch.optim.SGD{cfg} after step {t + 1} "
-                    f"(max diff {d:.2e})")
+                    f"(max diff {d:.2e})" + ("" if lrs is None else
+                    ". The LR changes before every step here: PyTorch keeps lr OUT of the "
+                    "buffer and applies the CURRENT lr to it (p -= lr*buf). A velocity "
+                    "v = mu*v - lr*g matches only while the LR is constant"))
             prev = {n: p.detach().clone() for n, p in net.named_parameters()}
     return _named(check, f"check_sgd_matches_torch_{label}")
 
@@ -363,6 +399,10 @@ CHECKS = [
     # cloned on the first step aliases p.grad and gets wiped by the in-place zeroing.
     _sgd_trajectory_check("momentum_when_grads_are_zeroed_in_place", 0.9, 0.0, False, True),
     _sgd_trajectory_check("nesterov_when_grads_are_zeroed_in_place", 0.9, 0.0, True, True),
+    # The LR changes every step (warmup then cosine): catches the textbook velocity form
+    # v = mu*v - lr*g, which equals PyTorch's convention only at a constant LR.
+    _sgd_trajectory_check("momentum_with_changing_lr", 0.9, 0.1, False, lrs=_CHANGING_LRS),
+    _sgd_trajectory_check("nesterov_with_changing_lr", 0.9, 0.0, True, lrs=_CHANGING_LRS),
     check_sgd_zero_grad_clears_gradients,
     check_lr_warmup_is_linear_from_base_over_warmup,
     check_lr_cosine_decay_key_points,

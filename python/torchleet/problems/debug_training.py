@@ -145,6 +145,7 @@ def check_train_one_epoch_matches_clean_sgd_steps(ns):
     import copy
     model, loader = _tiny_problem()
     ref = copy.deepcopy(model)
+    init = [p.detach().clone() for p in model.parameters()]
     loss_fn = nn.CrossEntropyLoss()
     ns.train_one_epoch(model, loader, torch.optim.SGD(model.parameters(), lr=0.5), loss_fn)
     ref_opt = torch.optim.SGD(ref.parameters(), lr=0.5)
@@ -152,6 +153,9 @@ def check_train_one_epoch_matches_clean_sgd_steps(ns):
         ref_opt.zero_grad()
         loss_fn(ref(x), y).backward()
         ref_opt.step()
+    assert not all(torch.equal(p.detach(), p0) for p, p0 in zip(model.parameters(), init)), (
+        "train_one_epoch did not change the parameters at all: optimizer.step() must run after "
+        "backward() and before the gradients are cleared")
     for (n, p), q in zip(model.named_parameters(), ref.parameters()):
         d = (p - q).abs().max().item()
         assert torch.allclose(p, q, atol=1e-5), (
