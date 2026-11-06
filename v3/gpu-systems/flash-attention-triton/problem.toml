@@ -24,7 +24,7 @@ solution = "flash-attention-triton_SOLN.ipynb"
 [grading]
 tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["flash_attention_pytorch"]
-extras = ["triton"]
+extras = []
 device = "cpu"    # kernel checks run on CUDA or with TRITON_INTERPRET=1
 
 [[companies]]

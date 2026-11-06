@@ -23,7 +23,7 @@ solution = "ddpm_SOLN.ipynb"
 [grading]
 tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["linear_beta_schedule", "q_sample", "SimpleDenoiser", "p_sample", "p_sample_loop"]
-extras = ["matplotlib", "numpy", "sklearn"]
+extras = []
 device = "cpu"
 
 [[companies]]

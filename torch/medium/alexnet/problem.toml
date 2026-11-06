@@ -22,5 +22,5 @@ solution = "alexnet_SOLN.ipynb"
 [grading]
 tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["AlexNet"]
-extras = ["torchvision"]
+extras = []
 device = "cpu"

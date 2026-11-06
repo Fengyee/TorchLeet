@@ -22,5 +22,5 @@ solution = "custom-dataset_SOLN.ipynb"
 [grading]
 tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["LinearRegressionDataset"]
-extras = ["pandas"]
+extras = []
 device = "cpu"

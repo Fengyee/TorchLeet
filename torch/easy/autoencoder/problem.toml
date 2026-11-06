@@ -22,5 +22,5 @@ solution = "autoencoder_SOLN.ipynb"
 [grading]
 tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["Autoencoder", "anomaly_scores"]
-extras = ["matplotlib", "torchvision"]
+extras = []
 device = "cpu"

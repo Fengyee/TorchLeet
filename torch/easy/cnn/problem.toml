@@ -22,5 +22,5 @@ solution = "CNN_SOLN.ipynb"
 [grading]
 tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["CNNModel"]
-extras = ["torchvision"]
+extras = []
 device = "cpu"

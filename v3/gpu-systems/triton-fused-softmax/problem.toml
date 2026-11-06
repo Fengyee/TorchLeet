@@ -23,7 +23,7 @@ solution = "triton-fused-softmax_SOLN.ipynb"
 [grading]
 tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["online_softmax_pytorch"]
-extras = ["triton"]
+extras = []
 device = "cpu"    # kernel checks run on CUDA or with TRITON_INTERPRET=1
 
 [[companies]]

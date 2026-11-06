@@ -22,5 +22,5 @@ solution = "bench_SOLN.ipynb"
 [grading]
 tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["SimpleNN"]
-extras = ["torchvision"]
+extras = []
 device = "cpu"

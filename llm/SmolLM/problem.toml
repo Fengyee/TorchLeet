@@ -23,7 +23,7 @@ solution = "smollm-q12.ipynb"
 [grading]
 tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["rotate_half", "apply_rotary_pos_emb", "repeat_kv", "RotaryEmbedder", "RopeAttention"]
-extras = ["transformers"]
+extras = []
 device = "cpu"
 
 [llm_path]

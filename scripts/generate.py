@@ -278,6 +278,15 @@ def _spec_entries(pid: str) -> list[str] | None:
     return re.findall(r'"([^"]+)"', m.group(1)) if m else []
 
 
+def _spec_extras(pid: str) -> list[str] | None:
+    """EXTRAS declared by a grader spec (None when there is no spec)."""
+    f = _spec_path(pid)
+    if f is None:
+        return None
+    m = re.search(r"^EXTRAS\s*=\s*\[(.*?)\]", f.read_text(), re.M | re.S)
+    return re.findall(r'"([^"]+)"', m.group(1)) if m else []
+
+
 def cmd_check() -> int:
     errs, seen, n = [], {}, 0
     for mf in sorted(ROOT.rglob("problem.toml")):
@@ -318,6 +327,10 @@ def cmd_check() -> int:
         if spec is not None and sorted(spec) != sorted(grading.get("entries") or []):
             errs.append(f"{rel}: grading.entries {grading.get('entries')} != "
                         f"torchleet.problems ENTRIES {spec}")
+        want_x = _spec_extras(pid)
+        if want_x is not None and sorted(want_x) != sorted(grading.get("extras") or []):
+            errs.append(f"{rel}: grading.extras {grading.get('extras')} != spec EXTRAS "
+                        f"{want_x} — run `generate.py tiers`")
 
     for e in errs:
         print(f"FAIL {e}")
@@ -612,8 +625,10 @@ def cmd_hints() -> int:
 
 
 def cmd_tiers() -> int:
-    """Derive grading.tier from whether a grader spec exists: A = auto-graded,
-    C = not graded. The seeded heuristic tiers had drifted from reality."""
+    """Derive grading.tier from whether a grader spec exists (A = auto-graded,
+    C = not graded) and grading.extras from the spec's EXTRAS — the packages the
+    *check* needs, not what the notebook imports (see CONTRIBUTING.md). The
+    seeded heuristic values had drifted from reality."""
     n = 0
     for m, d in load_all():
         tier = "A" if _spec_entries(m.get("id")) is not None else "C"
@@ -622,6 +637,10 @@ def cmd_tiers() -> int:
         new = re.sub(r'^tier = "[ABC]".*$',
                      f'tier = "{tier}"        # A = auto-graded by check(), C = not graded',
                      txt, count=1, flags=re.M)
+        extras = _spec_extras(m.get("id"))
+        if extras is not None:
+            new = re.sub(r'^extras = \[[^\]]*\][^\n]*$', f"extras = {emit(sorted(extras))}",
+                         new, count=1, flags=re.M)
         if new != txt:
             mf.write_text(new)
             n += 1

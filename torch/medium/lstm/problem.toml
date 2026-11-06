@@ -22,5 +22,5 @@ solution = "LSTM_SOLN.ipynb"
 [grading]
 tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["CustomLSTMModel", "LSTMModel"]
-extras = ["matplotlib"]
+extras = []
 device = "cpu"

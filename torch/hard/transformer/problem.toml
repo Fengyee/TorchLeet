@@ -23,5 +23,5 @@ solution = "transformer_SOLN.ipynb"
 [grading]
 tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["PositionalEncoding", "MultiHeadSelfAttention", "FeedForward", "TransformerEncoderLayer", "TransformerModel"]
-extras = ["datasets", "transformers"]
+extras = []
 device = "cpu"

@@ -22,5 +22,5 @@ solution = "CNN_scratch_SOLN.ipynb"
 [grading]
 tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["Conv2dCustom", "MaxPool2dCustom"]
-extras = ["torchvision"]
+extras = []
 device = "cpu"

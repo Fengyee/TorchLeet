@@ -23,7 +23,7 @@ solution = "vit-mae_SOLN.ipynb"
 [grading]
 tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["PatchEmbedding", "ViT", "MAE"]
-extras = ["matplotlib", "numpy"]
+extras = []
 device = "cpu"
 
 [[companies]]

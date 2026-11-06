@@ -23,7 +23,7 @@ solution = "ddim-cfg_SOLN.ipynb"
 [grading]
 tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["ConditionalDenoiser", "ddim_sample_step", "guided_predict", "ddim_sample_loop"]
-extras = ["matplotlib", "numpy"]
+extras = []
 device = "cpu"
 
 [[companies]]

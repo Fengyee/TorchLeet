@@ -1,7 +1,7 @@
 """cnn — a CNN for CIFAR-10.
 
-A Tier C problem: the notebook ships no assertions, so these checks are authored
-rather than extracted. Note EXTRAS is empty even though the notebook imports
+The notebook's own cells don't assert anything about the model, so these checks
+are authored rather than extracted. Note EXTRAS is empty even though the notebook imports
 torchvision — torchvision loads the *dataset*, while the graded unit is the model,
 which is pure torch. Requiring it would skip a check that can actually run.
 
