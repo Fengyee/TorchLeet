@@ -48,7 +48,7 @@ def check_dropout_only_in_training(ns):
         a, b = m(x), m(x)
     assert not torch.equal(a, b), (
         "two training-mode passes on the same input gave identical outputs — "
-        "AlexNet applies dropout (p=0.5) before its two hidden FC layers")
+        "AlexNet applies dropout (p=0.5) in its fully connected layers")
     m.eval()
     with torch.no_grad():
         a, b = m(x), m(x)

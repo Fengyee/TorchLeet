@@ -126,7 +126,7 @@ def check_dataloader_batches_it(ns):
 
 def check_batches_fit_the_model(ns):
     """nn.Linear(1, 1) needs X batches of (B, 1); MSELoss needs y to match the
-    (B, 1) predictions — a (B,) target silently broadcasts to (B, B)."""
+    (B, 1) predictions — a (B,) target broadcasts to (B, B), with only a warning."""
     ds = _dataset(ns)
     bx, by = next(iter(DataLoader(ds, batch_size=4, shuffle=False)))
     assert tuple(bx.shape) == (4, 1), (

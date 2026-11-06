@@ -51,14 +51,33 @@ def check_assignments_in_range(ns):
         f"assignments must be in [0, 3), got [{int(a.min())}, {int(a.max())}]"
 
 
+def _not_nearest(data, centroids, a):
+    """Points whose assigned centroid is farther than their nearest one (Euclidean),
+    with a little slack so exact ties and rounding cannot count."""
+    d = torch.cdist(data, centroids.float())
+    gap = d.gather(1, a.long().reshape(-1, 1)).squeeze(1) - d.min(dim=1).values
+    return int((gap > 1e-4).sum())
+
+
 def check_points_belong_to_nearest_centroid(ns):
-    """The invariant that defines a converged assignment step."""
+    """The invariant that defines a converged assignment step — checked on the
+    blobs and on overlapping Gaussian data, where the nearest centroid under L1
+    (or any other distance) often differs from the Euclidean one."""
     data, _ = _blobs()
     centroids, a = ns.kmeans(data, k=3)
-    nearest = torch.cdist(data, centroids).argmin(dim=1)
-    wrong = int((nearest != a).sum())
+    wrong = _not_nearest(data, centroids, a)
     assert wrong == 0, \
         f"{wrong} point(s) are not assigned to their nearest centroid"
+    g = torch.Generator().manual_seed(5)
+    data = torch.randn(80, 3, generator=g)
+    torch.manual_seed(0)
+    centroids, a = ns.kmeans(data, k=5)
+    wrong = _not_nearest(data, centroids, a)
+    assert wrong == 0, (
+        f"on overlapping data, {wrong} of 80 points are not assigned to their "
+        "nearest centroid by Euclidean distance — use the L2 distance (torch.cdist "
+        "or ((x - c) ** 2).sum(-1)), and return assignments that match the final "
+        "centroids")
 
 
 def check_centroids_are_means_of_members(ns):

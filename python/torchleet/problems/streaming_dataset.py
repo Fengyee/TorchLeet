@@ -16,8 +16,9 @@ import tracemalloc
 from contextlib import contextmanager
 
 import torch
-from torch.utils.data import DataLoader, IterableDataset
+from torch.utils.data import DataLoader, IterableDataset, get_worker_info
 from torch.utils.data._utils import worker as _worker
+from torchleet.runner import Skip
 
 ENTRIES = ["StreamingDataset"]
 DEVICE = "cpu"
@@ -52,11 +53,20 @@ def _csv(n=N, d=D):
 
 @contextmanager
 def _as_worker(worker_id, num_workers, dataset):
-    """What a DataLoader worker sees: get_worker_info() reports worker k of n."""
+    """What a DataLoader worker sees: get_worker_info() reports worker k of n.
+
+    This sets the private module global that get_worker_info() returns. If a
+    future torch stores it elsewhere, the check is skipped rather than failing a
+    correct solution."""
+    if not hasattr(_worker, "_worker_info") or not hasattr(_worker, "WorkerInfo"):
+        raise Skip("cannot fake a DataLoader worker with this torch version")
     saved = _worker._worker_info
     _worker._worker_info = _worker.WorkerInfo(
         id=worker_id, num_workers=num_workers, seed=0, dataset=dataset)
     try:
+        info = get_worker_info()
+        if info is None or info.id != worker_id or info.num_workers != num_workers:
+            raise Skip("cannot fake a DataLoader worker with this torch version")
         yield
     finally:
         _worker._worker_info = saved

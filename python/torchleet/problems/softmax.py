@@ -1,5 +1,11 @@
-"""softmax — numerically stable softmax from scratch."""
+"""softmax — numerically stable softmax from scratch.
+
+The built-in softmax / log_softmax kernels are disabled while the solver's
+function runs (caught through a TorchFunctionMode, however they are reached);
+logsumexp, exp, max and sum are all fine.
+"""
 import torch
+from torch.overrides import TorchFunctionMode
 
 ENTRIES = ["softmax"]
 DEVICE = "cpu"
@@ -77,6 +83,27 @@ def check_gradient_matches_torch(ns):
         f"gradient disagrees with torch.softmax (max diff {(a.grad - b.grad).abs().max():.2e})"
 
 
+_BUILTINS = {"softmax", "_softmax", "log_softmax", "_log_softmax",
+             "special_softmax", "special_log_softmax"}
+
+
+class _NoBuiltinSoftmax(TorchFunctionMode):
+    def __torch_function__(self, func, types, args=(), kwargs=None):
+        name = getattr(func, "__name__", "")
+        if name in _BUILTINS:
+            raise AssertionError(
+                f"the built-in `{name}` was called — the exercise is to write softmax "
+                "from exp, max and sum yourself")
+        return func(*args, **(kwargs or {}))
+
+
+def check_does_not_call_the_builtin(ns):
+    """torch.softmax / F.softmax / x.log_softmax().exp() would pass every other check."""
+    with _NoBuiltinSoftmax():
+        ns.softmax(torch.randn(3, 5))
+        ns.softmax(torch.randn(2, 4, 3), dim=1)
+
+
 CHECKS = [check_matches_torch_softmax, check_respects_dim_argument,
           check_sums_to_one, check_numerically_stable, check_does_not_modify_input,
-          check_gradient_matches_torch]
+          check_gradient_matches_torch, check_does_not_call_the_builtin]

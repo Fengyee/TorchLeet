@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import os
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -118,12 +119,24 @@ def report(pid: str, results: list[tuple[str, str, str]]) -> bool:
     return True
 
 
+def load_progress() -> dict:
+    """Progress so far; an unreadable or corrupt file counts as empty."""
+    try:
+        data = json.loads(PROGRESS.read_text()) if PROGRESS.exists() else {}
+    except (OSError, ValueError):   # ValueError covers a truncated/garbled JSON file
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
 def _record(pid: str, partial: bool = False) -> None:
     try:
         PROGRESS.parent.mkdir(parents=True, exist_ok=True)
-        data = json.loads(PROGRESS.read_text()) if PROGRESS.exists() else {}
+        data = load_progress()
         data[pid] = {"passed_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
                      "partial": partial}
-        PROGRESS.write_text(json.dumps(data, indent=1))
+        # Write-then-rename so an interrupted write can't leave a truncated file.
+        tmp = PROGRESS.with_suffix(f".{os.getpid()}.tmp")
+        tmp.write_text(json.dumps(data, indent=1))
+        os.replace(tmp, PROGRESS)
     except OSError:
         pass  # ponytail: progress is a convenience; never fail a pass on disk issues

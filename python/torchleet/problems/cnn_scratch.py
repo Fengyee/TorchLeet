@@ -5,12 +5,15 @@ into the reference layer, so only the convolution arithmetic is compared — on
 non-square inputs (so H and W cannot be swapped unnoticed), several kernel /
 stride / padding combinations, overlapping pools and the default pool stride.
 Gradients are compared too, which catches a hand-written backward that is off.
-The built-in conv / pool functions are disabled while the solver's layers run:
-the point of the problem is to implement them, not to wrap them.
+The built-in conv / pool kernels are disabled while the solver's layers run —
+caught through a TorchFunctionMode, so `from torch.nn.functional import conv2d`,
+torch.convolution or an nn.Conv2d built inside forward() are refused too: the
+point of the problem is to implement them, not to wrap them.
 """
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.overrides import TorchFunctionMode
 
 ENTRIES = ["Conv2dCustom", "MaxPool2dCustom"]
 DEVICE = "cpu"
@@ -83,8 +86,26 @@ def check_maxpool_matches_torch(ns):
             f"{where}: disagrees with F.max_pool2d (max diff {(got - exp).abs().max():.2e})"
 
 
-_BUILTINS = ((F, "conv2d"), (torch, "conv2d"), (F, "max_pool2d"),
-             (torch, "max_pool2d"), (F, "max_pool2d_with_indices"))
+_BUILTINS = {
+    "conv1d", "conv2d", "conv3d", "convolution", "_convolution",
+    "conv_transpose1d", "conv_transpose2d", "conv_transpose3d",
+    "max_pool1d", "max_pool2d", "max_pool3d", "max_pool1d_with_indices",
+    "max_pool2d_with_indices", "max_pool3d_with_indices",
+    "adaptive_max_pool1d", "adaptive_max_pool2d", "fractional_max_pool2d",
+}
+
+
+class _NoBuiltinConvPool(TorchFunctionMode):
+    """Fails on any call to a built-in convolution or max-pool, however it is
+    reached (F.conv2d, a directly imported conv2d, torch.convolution, nn.Conv2d)."""
+
+    def __torch_function__(self, func, types, args=(), kwargs=None):
+        name = getattr(func, "__name__", "")
+        if name in _BUILTINS:
+            raise AssertionError(
+                f"the built-in `{name}` was called — implement the operation yourself "
+                "(slicing, Tensor.unfold / F.unfold and a matmul or einsum)")
+        return func(*args, **(kwargs or {}))
 
 
 def check_does_not_wrap_the_builtins(ns):
@@ -97,23 +118,9 @@ def check_does_not_wrap_the_builtins(ns):
         assert not inner, (
             f"{type(layer).__name__} contains {', '.join(inner)} — implement the "
             "operation with tensor ops instead of wrapping the built-in layer")
-
-    def forbidden(name):
-        def f(*a, **k):
-            raise AssertionError(
-                f"{name} was called — implement the operation yourself (slicing, "
-                "Tensor.unfold / F.unfold and a matmul or einsum)")
-        return f
-
-    saved = [(mod, attr, getattr(mod, attr)) for mod, attr in _BUILTINS]
-    try:
-        for mod, attr, _ in saved:
-            setattr(mod, attr, forbidden(f"{mod.__name__}.{attr}"))
+    with _NoBuiltinConvPool():
         conv(torch.randn(1, 3, 8, 8))
         pool(torch.randn(1, 3, 8, 8))
-    finally:
-        for mod, attr, fn in saved:
-            setattr(mod, attr, fn)
 
 
 CHECKS = [check_conv_output_shape, check_conv_matches_torch,

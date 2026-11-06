@@ -8,9 +8,9 @@ resolution, in the masks' [B, D, 1, W, H] layout (the problem fixes that layout,
 and anything else makes `pred * labels` in the Dice loss broadcast silently), and
 the borrowed backbone must actually be on the gradient path.
 
-compute_dice_loss is pinned against the Dice formula itself on binary masks, and
-both common conventions (the coefficient, or 1 - coefficient) are accepted since
-the problem does not say which one to return.
+compute_dice_loss is pinned against the Dice formula itself on binary masks. It
+must return the loss, 1 - coefficient, as the notebook's stub asks: the training
+loop minimises it, so returning the coefficient would train away from the masks.
 """
 import torch
 import torch.nn as nn
@@ -167,7 +167,10 @@ def check_dice_matches_the_formula(ns):
     """Pinned on binary masks, where every soft-Dice variant agrees."""
     p, l = _masks(_PRED, _LABEL)
     got = float(torch.as_tensor(ns.compute_dice_loss(p, l)))
-    assert min(abs(got - _DICE), abs(got - (1 - _DICE))) < 1e-3, (
+    assert abs(got - _DICE) >= 1e-3, (
+        f"got {got:.4f}, which is the Dice coefficient — return the loss, "
+        "1 - coefficient, or minimising it trains the model away from the masks")
+    assert abs(got - (1 - _DICE)) < 1e-3, (
         f"6 of 8 predicted voxels overlap 8 labelled ones, so the Dice "
         f"coefficient 2*6/(8+8) is {_DICE:.2f} and the Dice loss is "
         f"{1 - _DICE:.2f} — got {got:.4f}")
@@ -183,7 +186,7 @@ def check_dice_is_symmetric(ns):
 
 
 def check_dice_separates_perfect_from_disjoint(ns):
-    """A perfect mask and its complement must land at opposite ends."""
+    """A perfect mask scores a loss of 0, its complement a loss of 1."""
     p, l = _masks(_LABEL, _LABEL)
     perfect = float(torch.as_tensor(ns.compute_dice_loss(p, l)))
     inv, l2 = _masks([1 - v for v in _LABEL], _LABEL)
@@ -191,10 +194,10 @@ def check_dice_separates_perfect_from_disjoint(ns):
     for name, v in (("perfect overlap", perfect), ("no overlap", disjoint)):
         assert -1e-4 <= v <= 1.0 + 1e-4, \
             f"{name} gave {v:.4f}; Dice stays in [0, 1] for masks in [0, 1]"
-    assert abs(perfect - disjoint) > 0.9, (
+    assert perfect < 0.05 and disjoint > 0.95, (
         f"a perfect prediction scores {perfect:.4f} and a completely wrong one "
-        f"{disjoint:.4f} — those should be 1 and 0 (or 0 and 1); the overlap term "
-        "is not driving the result")
+        f"{disjoint:.4f} — the Dice loss should be 0 and 1 for those (1 - the "
+        "coefficient); the overlap term is not driving the result")
 
 
 def check_dice_is_differentiable(ns):

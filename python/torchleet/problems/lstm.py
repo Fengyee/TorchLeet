@@ -10,12 +10,18 @@ The gate algebra is pinned black-box, one timestep at a time, by varying the
 incoming cell state C0 while x and H0 stay fixed. For an LSTM (no peepholes, as
 in nn.LSTM) C1 = f * C0 + i * g is affine in C0 with a slope f in (0, 1), the
 remainder i * g lies in (-1, 1) and takes both signs (g is a tanh), and
-H1 / tanh(C1) = o is a gate in (0, 1) that does not depend on C0. Together with
-|H| < 1 and "the gates read both x and H0", that leaves no room for a dropped
-gate, a sigmoid where a tanh belongs, or a missing recurrence.
+H1 / tanh(C1) = o is a gate in (0, 1) that does not depend on C0. From a zero
+state C1 = i * g, and driving x hard saturates the input gates shut for one
+sign of x, so those units write ~0 — without an input gate a saturated tanh
+writes ~+-1 either way. Together with |H| < 1 and "the gates read both x and H0",
+that catches a dropped forget, input or output gate, a sigmoid where a tanh
+belongs, and a missing recurrence. nn.LSTM / nn.LSTMCell (and the other built-in
+recurrent kernels) are disabled while the custom cell runs.
 """
 import torch
 import torch.nn as nn
+from torch.overrides import TorchFunctionMode
+
 from torchleet.checks import common as c
 
 ENTRIES = ["CustomLSTMModel", "LSTMModel"]
@@ -107,6 +113,9 @@ def check_custom_hidden_state_is_bounded(ns):
     with torch.no_grad():
         _, (h, _) = _unpack(m(torch.randn(4, SEQ, FEAT) * 50, _zero_state(4)),
                             "CustomLSTMModel")
+    assert torch.isfinite(h).all(), (
+        "the hidden state is NaN/inf for large inputs — use torch.sigmoid / "
+        "torch.tanh (a tanh written with exp() overflows)")
     assert float(h.abs().max()) <= 1.0 + 1e-4, (
         f"the hidden state reached {float(h.abs().max()):.3f}; H = o * tanh(C) "
         "with a sigmoid gate can never leave (-1, 1), so a squashing "
@@ -188,6 +197,58 @@ def check_custom_output_gate_reads_tanh_of_the_cell(ns):
         "H_t equals tanh(C_t) — the output gate is missing"
 
 
+def check_custom_input_gate_scales_the_write(ns):
+    """C1 = i * g from a zero state: each unit's input gate saturates shut for one
+    sign of a large x, so its write is ~0 there. Without an input gate (C1 = g) a
+    saturated tanh writes ~+-1 for both signs."""
+    hidden = 32
+    m = _custom(ns, hidden=hidden)
+    m.eval()
+    # The largest input that stays finite (a hand-written exp() tanh can overflow);
+    # the larger it is, the harder the gates saturate, whatever the init scale.
+    for scale in (5000.0, 500.0, 50.0, 10.0):
+        x = torch.full((2, 1, FEAT), scale)
+        x[1] = -scale
+        _, c1 = _one_step(m, x, *_zero_state(2, hidden))
+        if torch.isfinite(c1).all():
+            break
+    else:
+        raise AssertionError(
+            "the cell state is NaN/inf for large inputs — use torch.sigmoid / "
+            "torch.tanh (a tanh written with exp() overflows)")
+    shut = (c1.abs().min(dim=0).values < 0.05).float().mean().item()
+    assert shut >= 0.25, (
+        f"from a zero state C_t = i_t * g_t; with x = +-{scale:g} some input gates "
+        f"should close (i_t ~ 0) and block the write, but only {shut:.0%} of the "
+        "units wrote ~0 for either sign — is C_t = f_t * C_(t-1) + g_t missing the "
+        "input gate i_t?")
+
+
+_RECURRENT_KERNELS = {"lstm", "lstm_cell", "gru", "gru_cell", "rnn_tanh", "rnn_relu",
+                      "rnn_tanh_cell", "rnn_relu_cell", "_thnn_fused_lstm_cell",
+                      "_thnn_fused_gru_cell"}
+
+
+class _NoBuiltinRNN(TorchFunctionMode):
+    """Fails on any call to a built-in recurrent kernel, however it is reached
+    (nn.LSTM, nn.LSTMCell, torch._VF.lstm_cell, ...)."""
+
+    def __torch_function__(self, func, types, args=(), kwargs=None):
+        name = getattr(func, "__name__", "")
+        if name in _RECURRENT_KERNELS:
+            raise AssertionError(
+                f"CustomLSTMModel called the built-in `{name}` kernel — write the gate "
+                "equations yourself; nn.LSTM belongs only in LSTMModel")
+        return func(*args, **(kwargs or {}))
+
+
+def check_custom_does_not_wrap_nn_lstm(ns):
+    m = _custom(ns)
+    m.eval()
+    with torch.no_grad(), _NoBuiltinRNN():
+        m(torch.randn(2, SEQ, FEAT), _zero_state(2))
+
+
 def check_custom_gates_read_input_and_hidden(ns):
     """The gates are functions of both x_t and H_(t-1)."""
     m, x, h0, c0, ((_, ca), _, _) = _step_probe(ns)
@@ -265,7 +326,9 @@ CHECKS = [
     check_custom_default_state_is_zeros,
     check_custom_forget_gate_scales_the_old_cell,
     check_custom_output_gate_reads_tanh_of_the_cell,
+    check_custom_input_gate_scales_the_write,
     check_custom_gates_read_input_and_hidden,
+    check_custom_does_not_wrap_nn_lstm,
     check_custom_gradients_reach_all_parameters,
     check_custom_can_learn,
     check_inbuilt_output_shape,
