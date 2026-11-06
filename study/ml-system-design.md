@@ -47,6 +47,11 @@ How to self-review a mock: score each of the 11 phases in §1.2 as *covered / sh
 | Research Scientist | problem formulation, model and objective choices, evaluation rigour, ablations, failure analysis, what is novel vs risky | ML framing, model, offline eval |
 | Research Engineer / ML-infra | throughput, scaling, parallelism, reliability, cost, data pipelines, numbers | training infra, serving optimisation, back-of-envelope |
 
+**The round itself often differs by role** (formats vary by company — ask the recruiter which flavour to expect):
+- *Applied MLE*: the classic product ML design below (all 11 phases, end to end, with an A/B plan).
+- *RS*: often a research-design discussion ("how would you approach X?") rather than a serving diagram — problem formulation, baselines, evaluation protocol, ablations, what result would falsify the idea; serving and cost get a minute, not seven.
+- *RE / ML-infra*: often a **platform** prompt — a training run, an inference fleet, a data pipeline or an eval harness (case f, prompts 3 and 9 in §4.2) — graded on numbers: memory, FLOPs, bandwidth, failure rates, cost.
+
 ### 1.2 Time budget (45 minutes)
 
 | # | Phase | Min | Clock | What should be on the board when you leave the phase |
@@ -67,6 +72,7 @@ Rules of thumb:
 - **Breadth first.** Have an end-to-end sketch (boxes and arrows) by about minute 20, then deep-dive where the interviewer signals interest. Ask: "I can go deeper on the retrieval index or on the labeling loop — which is more useful?"
 - If the interviewer jumps ahead, follow them, but **park** what you skipped ("I'll come back to monitoring") and return to it.
 - Phases 4–6 often merge in practice. Phase 11 is cheapest when woven in (e.g., privacy during data, fairness slices during eval).
+- A "45-minute" slot often leaves only ~35–40 minutes of design after introductions and your own questions. Then compress phases 4, 6 and 11 to about a minute each and trim data/model to ~5 minutes each; keep requirements, serving and monitoring.
 
 ### 1.3 Phase by phase: what to ask, what to do
 
@@ -81,7 +87,7 @@ Rules of thumb:
 - *Existing system*: greenfield or replacing something? What is logged today (this decides your labels)?
 - *Error costs*: is a false positive or a false negative worse? Is there a human in the loop?
 
-**Do**: write 4–6 requirements and turn them into numbers immediately: "15M queries/day ≈ 175 QPS average, ≈ 500 peak; p99 ≤ 400 ms server-side; new products searchable within 1 h."
+**Do**: write 4–6 requirements and turn them into numbers immediately: "15M queries/day ≈ 174 QPS average, ≈ 520 peak (3×); p99 ≤ 400 ms server-side; new products searchable within 1 h."
 **Avoid**: a 10-minute questionnaire. Ask, state assumptions, move on.
 
 #### Phase 2 — Frame as an ML problem (3 min)
@@ -93,12 +99,13 @@ Rules of thumb:
 #### Phase 3 — Data (7 min)
 - **Sources**: product logs, catalog/corpus, licensed data, public datasets (check licences), synthetic data.
 - **Labeling strategy** (cost × quality × speed):
-  - Human labels: write guidelines, gold questions, multi-rater + adjudication, measure agreement (Cohen's/Fleiss' κ). Rough effort (approximate, task-dependent): image-level class ~1–5 s; bounding box ~7–35 s; instance polygon mask ~1–2 min (COCO reported ≈ 79 s per instance). Example: 1M boxes × 10 s ≈ 2,800 labeler-hours.
+  - Human labels: write guidelines, gold questions, multi-rater + adjudication, measure agreement (Cohen's/Fleiss' κ). Rough effort (approximate, task-dependent): image-level class ~1–5 s; bounding box ~7–35 s (≈ 7 s with "extreme clicking" vs ≈ 35 s for the classic draw-and-verify ImageNet protocol, Papadopoulos et al., 2017); instance polygon mask ~1–2 min (COCO reported 22 worker-hours per 1,000 segmentations ≈ 79 s per instance). Example: 1M boxes × 10 s ≈ 2,800 labeler-hours.
   - Implicit feedback: clicks, purchases, dwell, reports, appeals — cheap and plentiful but position-, exposure- and selection-biased.
   - Weak supervision: heuristics, metadata, distant labels (e.g., product category from catalog), noisy web alt-text.
   - Self-supervised / pretrained: CLIP/SigLIP/DINOv2-style backbones; fine-tune with few labels.
   - Model-assisted: pre-label with a large model, humans verify; active learning (uncertainty, disagreement, diversity) to pick what to label.
 - **Quality**: duplicates/near-duplicates, corrupt files, label noise, class imbalance, distribution gap between training data (e.g., studio product shots) and production (user photos).
+- **Label noise** (interviewers probe this): *measure* it — gold questions, inter-rater agreement, re-label a random sample with experts. *Reduce* it — clearer guidelines, consensus/adjudication on disagreements. *Train through* it — soft labels from rater votes, label smoothing or noise-robust losses, down-weighting or re-labelling examples the model confidently disagrees with (confident-learning-style tools such as cleanlab). *Clean the test set first*: label errors cap measurable accuracy and can flip model rankings (Northcutt et al., 2021 estimated ≥ 3.3 % errors on average across 10 popular test sets, ≥ 6 % in the ImageNet validation set).
 - **Splits**: split by **entity** (user, product, scene, video, uploader) or by **time**, never just by image; dedupe near-duplicates across splits; keep a frozen golden test set.
 - **Leakage checks**: same product/scene in train and test, bursts of near-identical photos, future information in features, **eval contamination of pretrained models** (web-scale pretraining data often contains benchmark images).
 - Volume and storage estimate (one line).
@@ -153,10 +160,17 @@ Rules of thumb:
 - **Reliability**: autoscaling on queue depth/GPU utilisation, warm pools (cold start of a GPU replica includes loading GBs of weights), timeouts, graceful degradation and fallbacks.
 
 #### Phase 9 — Online evaluation (2 min)
-- **A/B test**: randomisation unit (user > session > request, to avoid contamination), one primary metric, a few secondary metrics, **guardrails** (latency, errors, crash rate, revenue, safety incidents, cost).
-- **Sample size** (Lehr's rule, α = 0.05 two-sided, 80 % power): n per arm ≈ 16·σ²/δ². For a 5 % click rate (σ² = p(1−p) = 0.0475) and a +2 % relative lift (δ = 0.001): n ≈ 16 × 0.0475 / 10⁻⁶ ≈ **760K samples per arm** (if you randomise by user, compute σ² on the per-user metric).
-- Pitfalls: novelty/primacy effects (run ≥ 1–2 weekly cycles), sample-ratio mismatch checks, interference in marketplaces/social graphs, peeking.
-- **Interleaving** is far more sensitive for ranking changes; **long-term holdouts** catch slow effects.
+- **A/B test**: randomisation unit — usually the **user** (session- or request-level randomisation lets one user see both arms — inconsistent experience, carry-over between arms — and cannot measure user-level outcomes such as retention); one primary metric fixed in advance, a few secondary metrics, **guardrails** (latency, errors, crash rate, revenue, safety incidents, cost).
+- **Analyse at the randomisation unit**: with user-level assignment, a per-request ratio metric such as CTR (clicks / impressions) needs per-user aggregation or the **delta method** for its variance — treating requests as independent understates the variance and gives false positives.
+- **Sample size** (Lehr's rule, α = 0.05 two-sided, 80 % power): n per arm ≈ 16·σ²/δ². For a 5 % click rate (σ² = p(1−p) = 0.0475) and a +2 % relative lift (δ = 0.001): n ≈ 16 × 0.0475 / 10⁻⁶ ≈ **760K samples per arm** (if you randomise by user, compute σ² on the per-user metric). **CUPED** (regress out each user's pre-experiment value of the metric) can cut the variance, and so n, substantially; cap/winsorise heavy-tailed metrics such as revenue.
+- Pitfalls:
+  - **Sample-ratio mismatch (SRM)**: χ² test of observed vs designed arm sizes; a very small p-value (e.g., < 0.001) means assignment or logging is broken — do not interpret the result until it is fixed.
+  - **Novelty/primacy effects**: plot the effect by day or by days-since-first-exposure (it should stabilise); run whole weeks (≥ 1–2) to cover weekly seasonality.
+  - **Peeking**: fix the horizon from the power calculation, or use a sequential test designed for continuous monitoring.
+  - **Multiple comparisons** across many metrics/slices: pre-register, or correct (e.g., Benjamini–Hochberg).
+  - **Interference** in marketplaces/social graphs: cluster-level (graph or geo) or switchback randomisation.
+- **Interleaving** is far more sensitive for ranking changes (it measures which ranker users prefer, not the business metric — confirm winners with an A/B); **long-term holdouts** catch slow effects.
+- **Offline win, flat online result?** Usual suspects: the offline metric is a weak proxy for the goal (relevance ≠ purchase); the offline set only contains what the *old* model chose to show (exposure bias — use logged propensities / counterfactual evaluation); training-serving skew; a latency regression eating the gain; an underpowered test. Keep a log of offline-vs-online deltas across launches to learn which offline metrics actually predict online wins.
 - When you cannot A/B (safety-critical, legal): shadow mode, offline replay, staged ramps with human audit.
 
 #### Phase 10 — Monitoring and iteration (3 min)
@@ -164,7 +178,7 @@ Rules of thumb:
 - **Data drift**: input statistics (resolution, brightness, device/camera mix, language), embedding-distribution shift (e.g., distance of daily mean embedding to a reference; population stability index on scores).
 - **Prediction drift**: score distributions and positive rates per class/policy; sudden spikes usually mean a pipeline bug or an attack.
 - **Quality with delayed labels**: periodic human audits of random samples; proxy metrics in the meantime.
-- **Training-serving skew** (very common in CV): different resize/interpolation or antialiasing (PIL vs OpenCV vs GPU resize), JPEG decoder differences, EXIF orientation not applied, RGB vs BGR, colour profile (sRGB vs Display P3/HEIC), normalization constants, centre-crop vs letterbox, client-side re-compression, different video frame sampling. Fix: one shared preprocessing library + golden-image tests that compare train and serve tensors.
+- **Training-serving skew** (very common in CV): different resize/interpolation or antialiasing (PIL vs OpenCV vs GPU resize), JPEG decoder differences, EXIF orientation not applied, RGB vs BGR, colour space (sRGB vs Display P3, common in HEIC phone photos), normalization constants, centre-crop vs letterbox, client-side re-compression, different video frame sampling. Fix: one shared preprocessing library + golden-image tests that compare train and serve tensors.
 - **Feedback loops**: the model decides what users see, which decides future labels (exposure/position bias, moderation only reviews what it flagged). Mitigate: small randomised exploration traffic, log propensities, position as a training feature, random-sample audits.
 - **Retraining**: scheduled (weekly/monthly) plus triggered (drift alarm, new policy); every retrain goes through the same offline eval gate and shadow/canary.
 - **Failure modes and fallbacks**: dependency down → cached or popularity-based results; model returns garbage → score sanity checks; decide **fail-open vs fail-closed** explicitly per use case.
@@ -223,6 +237,7 @@ SERVING        [ ] diagram (online + offline paths)  [ ] latency budget that sum
                [ ] batching  [ ] caching  [ ] quantization/distillation  [ ] GPU vs CPU vs edge
                [ ] rollout: shadow -> canary -> ramp; fallbacks
 ONLINE EVAL    [ ] A/B unit, primary metric, guardrails, sample size  [ ] interleaving / holdouts
+               [ ] SRM check, novelty, analyse at the randomisation unit  [ ] offline-vs-online gap
 MONITORING     [ ] system + data drift + prediction drift  [ ] delayed labels -> audits  [ ] train/serve skew
                [ ] feedback loops & exploration  [ ] retraining cadence + triggers  [ ] failure modes
 RESPONSIBLE    [ ] fairness slices  [ ] safety/abuse  [ ] privacy/retention/consent  [ ] provenance
@@ -313,7 +328,7 @@ Each case follows the framework. Numbers are **stated assumptions** — the poin
             --> offline eval gate --> shadow --> atomic swap of (embedder version, index version)
 ```
 
-**Compute**: ~520 QPS × (~1 detector pass + 3 crops) is roughly 2K GPU inferences/s at peak. A ViT-B/16 at 224² is ≈ 17.6 GMACs ≈ 35 GFLOPs; 3 crops ≈ 105 GFLOPs + detector (say ~100 GFLOPs) ≈ 200 GFLOPs/query → 520 × 200 GFLOPs ≈ 100 TFLOP/s, i.e. about one A100-class GPU at ~30 % utilisation. Conclusion: **latency-bound, not throughput-bound** — deploy 2–3 GPUs per region for redundancy and keep batches small (max wait ~2–5 ms).
+**Compute**: ~520 QPS × (~1 detector pass + 3 crops) is roughly 2K GPU inferences/s at peak. A ViT-B/16 at 224² is ≈ 17.6 GMACs ≈ 35 GFLOPs; 3 crops ≈ 105 GFLOPs + detector (say ~100 GFLOPs) ≈ 205 GFLOPs/query → 520 × 205 GFLOPs ≈ 105 TFLOP/s, i.e. about one A100-class GPU at ~35 % utilisation. Conclusion: **latency-bound, not throughput-bound** — deploy 2–3 GPUs per region for redundancy and keep batches small (max wait ~2–5 ms).
 
 **Index memory** (200M vectors, d = 256):
 
@@ -324,8 +339,8 @@ Each case follows the framework. Numbers are **stated assumptions** — the poin
 | PQ, m = 32 sub-quantisers × 8 bits (+ 8-byte id) | 32 + 8 | ≈ 6.4 + 1.6 = **8 GB** (≈ 32× smaller codes) |
 | HNSW (M = 32) on float32 | 1,024 + ~256 links | ≈ 256 GB |
 
-- IVF parameters: Faiss guidance is nlist ≈ 4√N to 16√N; √(200M) ≈ 14K → nlist ≈ 65,536 (2¹⁶). With nprobe = 64 each query scans ≈ 200M × 64/65,536 ≈ 195K PQ codes (≈ 6 MB) → ~1–5 ms on a few CPU cores. Tune nprobe on the ANN-recall/latency curve.
-- 8 GB fits in RAM on one host → **replicate** for QPS and regions rather than shard. Keep float16 vectors (102 GB) on SSD or in a separate store if you want exact re-scoring of the top-1,000.
+- IVF parameters: a common rule of thumb is nlist ≈ 4√N–16√N (the Faiss wiki states it for < 1M vectors and suggests 2¹⁸–2²⁰ lists with an HNSW coarse quantiser at 10M–1B). √(200M) ≈ 14K → 4√N–16√N ≈ 57K–226K; take nlist = 65,536 (2¹⁶). With nprobe = 64 each query scans ≈ 200M × 64/65,536 ≈ 195K PQ codes (≈ 6 MB) → ~1–5 ms on a few CPU cores. More lists → fewer codes scanned per probe but slower k-means training and coarse assignment. Tune nprobe on the ANN-recall/latency curve.
+- 8 GB fits in RAM on one host → **replicate** for QPS and regions rather than shard. If you want exact re-scoring with float16 vectors (102 GB), note the I/O: re-scoring the top-1,000 for ~3 crops at 520 QPS is ≈ 1.5M random reads/s — at or beyond what a single NVMe drive delivers — so re-score fewer candidates (top ~100–200), use a finer code (e.g., more PQ bytes) or hold the vectors in RAM across a few hosts.
 
 **Freshness**:
 - New images: 1M/day ≈ 12/s average — embedding them is trivial. Insert into a small **fresh index** (flat or HNSW) that is queried in parallel with the main index; merge results by score; fold into the main index nightly (IVF-PQ assigns new vectors to existing centroids; retrain centroids only on rebuild).
@@ -333,7 +348,7 @@ Each case follows the framework. Numbers are **stated assumptions** — the poin
 - **Model upgrade = full backfill**: 200M × 35 GFLOPs = 7·10¹⁸ FLOPs; at ~94 TFLOP/s effective (A100 at 30 %) ≈ 75K GPU-s ≈ 21 GPU-hours → ~1.3 h on 16 GPUs (needs ~40K JPEG decodes/s in total — budget CPU cores or GPU decoding). Query encoder and index must switch **atomically**.
 
 #### 9. Online evaluation
-- User-level A/B. Primary: purchases (or GMV) per visual-search session. Secondary: CTR, add-to-cart, null/abandon rate. Guardrails: p99 latency, error rate, overall app revenue (cannibalisation of text search), seller diversity.
+- User-level A/B. Primary: purchases (or GMV) per visual-search session — a ratio metric under user-level randomisation, so use the delta method (and cap GMV outliers). Secondary: CTR, add-to-cart, null/abandon rate. Guardrails: p99 latency, error rate, overall app revenue (cannibalisation of text search), seller diversity.
 - Re-ranker iterations: interleaving for speed.
 
 #### 10. Monitoring and iteration
@@ -386,7 +401,7 @@ Each case follows the framework. Numbers are **stated assumptions** — the poin
 - Splits by uploader/account and by time (coordinated campaigns produce near-duplicates that would leak across random splits).
 
 #### 4–5. Features and model (cascade)
-- **Stage 0 — hash matching**: perceptual hashes (e.g., PDQ, PhotoDNA-style) against banks of known violating content. Near-free; catches re-uploads. A 256-bit PDQ hash is 32 bytes → 100M hashes ≈ 3.2 GB in memory.
+- **Stage 0 — hash matching**: perceptual hashes (e.g., PDQ, PhotoDNA-style) against banks of known violating content. Near-free; catches re-uploads. A 256-bit PDQ hash is 32 bytes → 100M hashes ≈ 3.2 GB in memory. Matching is a **Hamming-distance** search, not an exact lookup (Meta's PDQ reference suggests ≤ 31 differing bits of 256 as a starting threshold) → multi-index hashing or a binary ANN index.
 - **Stage 1 — shared encoder + per-policy heads** on 100 % of traffic. Baseline: frozen CLIP-style encoder + linear probes per policy (fast to build, surprisingly strong). Then fine-tune a ViT-S/efficient-CNN backbone multi-task. Video: per-frame scores + temporal max/attention pooling.
 - **Stage 2 — heavy multimodal model** on the uncertain ~5 %: image + caption + OCR text + audio transcript + account/context signals; a fine-tuned VLM can also be **prompted with policy text**, which lets you react to a new policy before you have many labels (then distil into a Stage-1 head). Multimodal fusion matters: benign image + hateful caption (the "hateful memes" problem) fools unimodal models.
 - **Stage 3 — human review** for the remaining uncertain, high-severity or high-reach items, plus appeals.
@@ -412,7 +427,7 @@ upload --> [Stage 0: perceptual-hash match vs known-bad banks] --hit--> auto-act
 ```
 
 #### Numbers: why a cascade
-- **Stage 1**: a ViT-S/16 is ≈ 4.6 GMACs ≈ 9 GFLOPs at 224². 35K/s × 9.2 GFLOPs ≈ 3.2·10¹⁴ FLOP/s. An L4-class GPU (~121 TFLOP/s dense BF16, approximate) at ~30 % utilisation gives ~36 TFLOP/s → ~3.9K images/s → **~9 GPUs at peak**, ~15–20 with redundancy across regions (INT8 roughly halves it). Decoding is a real cost: at a few hundred JPEG decodes/s per core, 35K/s needs ~100+ CPU cores or hardware decoders (NVDEC for video).
+- **Stage 1**: a ViT-S/16 is ≈ 4.6 GMACs ≈ 9 GFLOPs at 224². 35K/s × 9.2 GFLOPs ≈ 3.2·10¹⁴ FLOP/s. An L4-class GPU (~121 TFLOP/s dense BF16, approximate) at ~30 % utilisation gives ~36 TFLOP/s → ~3.9K images/s → **~9 GPUs at peak**, ~15–20 with redundancy across regions (INT8 roughly halves it). Decoding is a real cost: at a few hundred JPEG decodes/s per core, the ~7K images/s peak alone needs a few dozen cores. Video costs more than its ~28K sampled frames/s suggest: P/B-frames depend on earlier frames, so extracting 1 frame/s from H.264/HEVC still decodes many intervening frames unless you sample only keyframes (I-frames) → hardware decoders (NVDEC).
 - **Stage 2**: suppose a 7B VLM scoring ~600 tokens per item (≈ 576 image tokens + text), prefill only: 2 × 7·10⁹ × 600 ≈ 8.4·10¹² FLOPs/item. At 5 % of peak (≈ 1.75K items/s): ≈ 1.5·10¹⁶ FLOP/s → at ~400 TFLOP/s effective per H100 (≈ 40 % of ~989 TFLOP/s) ≈ **37 H100s**. Running Stage 2 on 100 % of traffic would need ≈ 20× more (≈ 740 H100s). That ratio is the cascade argument.
 - **Human review**: if 0.1 % of images reach humans → 300K/day; at ~20 s per item ≈ 1,670 reviewer-hours/day ≈ **210 eight-hour shifts per day** (images only). Escalation precision directly sets headcount.
 
@@ -424,7 +439,7 @@ upload --> [Stage 0: perceptual-hash match vs known-bad banks] --hit--> auto-act
 #### 7. Offline evaluation
 - Per policy: PR curve, **recall at the auto-action precision target** (e.g., ≥ 95–99 % precision for automated removal, depending on severity), recall at review-capacity budget, ECE.
 - Measuring recall when positives are rare: **stratified sampling by score bucket** with inverse-probability weighting, labelled by experts.
-- Slices: language/region, content type (art, medical, news), image vs video, skin tone (nudity classifiers are known to confuse skin tones), adversarial test set.
+- Slices: language/region, content type (art, medical, news), image vs video, skin tone (nudity classifiers that lean on skin-colour cues can have skin-tone-dependent error rates), adversarial test set.
 
 #### 8. Serving notes
 - Fast path budget (images, pre-publication): hash lookup ~5 ms, decode/resize ~10 ms, Stage 1 ~30 ms, decision ~5 ms → well under 200 ms. Stage 2 (~0.3–1 s) runs async with **publish-with-hold** (visible to the uploader only) or limited distribution until cleared.
@@ -432,7 +447,7 @@ upload --> [Stage 0: perceptual-hash match vs known-bad banks] --hit--> auto-act
 - **Fail-open vs fail-closed**: e.g., ads fail closed (hold until scanned); ordinary posts might fail open with a mandatory delayed scan. Decide per surface and policy.
 
 #### 9. Online evaluation
-- You cannot ethically A/B "let harmful content through". New classifiers run in **shadow mode**; compare against production decisions on a labelled sample; ramp thresholds gradually.
+- For severe-harm policies you cannot ethically A/B by withholding enforcement from a control group. New classifiers run in **shadow mode**; compare against production decisions on a labelled sample; ramp thresholds gradually. Lower-severity actions (e.g., demotion thresholds) can be A/B-tested with prevalence, user-report and appeal guardrails.
 - Outcome metrics: **prevalence** of violating views (estimated by labelling a random sample of *viewed* content), proactive rate (actioned before any user report), time-to-action, review SLA, appeal overturn rate (FP proxy), user reports per million views.
 
 #### 10. Monitoring and adversarial drift
@@ -524,7 +539,7 @@ client --> API gateway (auth, quotas, rate limits per account)
 
 A request for 4 images is fanned out to 4 GPUs (same GPU-seconds; up to ~4× lower latency than one GPU running batch 4, because the workload is compute-bound).
 
-**Cost math** — *assumption to verify by measurement*: an optimised SDXL-class model at 1024², 30 steps + CFG, costs **≈ 2 GPU-seconds per image** on an H100 (≈ 1.8 s denoising + ≈ 0.2 s fixed: text encoders, VAE decode, safety).
+**Cost math** — *assumption to verify by measurement*: an optimised SDXL-class model at 1024², 30 steps + CFG, costs **≈ 2 GPU-seconds per image** on an H100 (≈ 1.8 s denoising + ≈ 0.2 s fixed: text encoders, VAE decode, safety). Sanity check: the PyTorch/Hugging Face "Diffusion, Fast" benchmark ran SDXL at 1024², 30 steps with CFG in ≈ 2.4–2.5 s end to end on an A100-80GB after BF16 + SDPA + torch.compile (+ dynamic INT8); an H100 should be faster still, so ~2 s is a reasonable (if anything conservative) assumption.
 - GPU-seconds/day = 10M × 2 s = 2·10⁷ → **≈ 5,560 GPU-hours/day** → ≈ 231 GPUs busy on average.
 - Peak: 3 × 231 ≈ 694 busy GPUs; at a 70 % utilisation target ≈ **~1,000 GPUs** provisioned.
 - At an assumed $3/GPU-hour: perfect autoscaling → 5,560 × $3 ≈ $16.7K/day ≈ **$0.0017/image**; provisioned for peak 24/7 → 1,000 × 24 × $3 = $72K/day ≈ **$0.0072/image**. Utilisation dominates cost: fill troughs with batch jobs, use autoscaling with warm pools, and use cheaper/spot capacity for non-interactive work.
@@ -554,6 +569,7 @@ A request for 4 images is fanned out to 4 GPUs (same GPU-seconds; up to ~4× low
 - **Human side-by-side**: fixed prompt sets (e.g., PartiPrompts ~1.6K prompts, DrawBench 200 prompts) plus prompts sampled from traffic; several raters per pair; axes = overall preference, alignment, aesthetics, artifacts (hands, text); aggregate with Bradley–Terry/Elo and confidence intervals.
 - Safety eval: red-team prompt set → violation rate and false-refusal rate.
 - Diversity: variation across seeds for the same prompt (e.g., pairwise LPIPS or embedding spread), checked when distilling.
+- **Release gate** (when a new model ships every month, evaluation is itself a system): versioned prompt suites per capability (alignment, counting, text rendering, people and demographic spread, safety red-team); automated metrics with bootstrap CIs vs the production model; a human side-by-side against production with the win-rate threshold and sample size fixed in advance; hard blockers = regressions in violation rate, false-refusal rate or memorisation checks; then shadow → staged rollout. Track per-suite results over releases so a regression in one capability is not hidden by an average.
 
 #### 9–10. Online evaluation and monitoring
 - A/B (user-level): save/download/share rate, regenerate rate, session length, retention; guardrails: latency p95, safety-filter trigger and leak rates, cost per delivered image, complaint rate.
@@ -577,7 +593,7 @@ A request for 4 images is fanned out to 4 GPUs (same GPU-seconds; up to ~4× low
 **Prompt**: "Let users search their personal photo library with natural language ('dog in the snow', 'receipts from Tokyo') and find similar photos."
 
 #### 1. Requirements (assumed)
-- 500M users, median ~5K photos, heavy users 100K+ → ≈ **2.5T photos** in total.
+- 500M users, **mean** ~5K photos (the median is lower; heavy users 100K+) → 500M × 5K ≈ **2.5T photos** in total. (Multiplying users by the *median* would understate a heavy-tailed total.)
 - Privacy: photos are private (possibly end-to-end encrypted) → strong preference for **on-device** indexing and search.
 - Latency: results while typing, < 100–200 ms; works offline.
 - Freshness: new photos searchable within minutes (on device) when resources allow.
@@ -592,8 +608,8 @@ A request for 4 images is fanned out to 4 GPUs (same GPU-seconds; up to ~4× low
 #### Numbers
 - Per-user storage: 5K photos × 512-d × 2 B (FP16) ≈ 5 MB; a 100K-photo library ≈ 102 MB in FP16, 51 MB in INT8, **26 MB at 256-d INT8**.
 - Per-query brute force: 100K × 256 ≈ 26M multiply-adds → a few ms on a phone CPU with SIMD. **Exact search is fine; ANN is unnecessary.**
-- On-device indexing: if the image encoder takes ~10–30 ms per photo on a phone NPU (model- and device-dependent), a 20K-photo backlog ≈ 20K × 20 ms ≈ 7 min of accelerator time — schedule it in the background **while charging and idle**; watch thermals.
-- Model sizes: image encoder ~50–100M params (≈ 50–100 MB in INT8), text encoder ~40–60M params; download on demand to respect app-size limits.
+- On-device indexing: efficient image encoders run in ~2–10 ms per image on a recent phone (Apple reports ≈ 1.5–10 ms for MobileCLIP-S0…B on an iPhone 12 Pro Max); decoding and resizing a 12 MP HEIC/JPEG is often the larger cost. Budget ~20 ms per photo end to end → a 20K-photo backlog ≈ 20K × 20 ms ≈ 7 min — schedule it in the background **while charging and idle**; watch thermals.
+- Model sizes: image encoder ~10–90M params, text encoder ~40–65M (the MobileCLIP-S0…B range) → ≈ 55–150 MB in INT8 for the pair; download on demand to respect app-size limits.
 - **Why re-indexing is expensive (server-side counterfactual)**: 2.5T photos × ~35 GFLOPs (ViT-B/16) ≈ 8.75·10²² FLOPs — about the training compute of a 7B LLM on 2T tokens (6 × 7·10⁹ × 2·10¹² = 8.4·10²²). Storing them: 2.5T × 256 B (256-d INT8) ≈ 640 TB. On device the cost is battery and time instead. Hence **backward-compatible embeddings** (new model's embeddings comparable with old ones) or lazy, versioned re-indexing.
 
 #### On-device vs server
@@ -632,7 +648,7 @@ A request for 4 images is fanned out to 4 GPUs (same GPU-seconds; up to ~4× low
  Query "mom at the beach last summer"
    --> [query parser: rules / small model]  person=Mom, time=<last Jun-Aug>, semantic="at the beach"
    --> metadata filters --> candidate set
-   --> text encoder (~5-15 ms) --> exact cosine over candidates (~ms)
+   --> text encoder (~2-15 ms) --> exact cosine over candidates (~ms)
    --> fuse with OCR / keyword hits (e.g., reciprocal rank fusion or small learned ranker)
    --> group bursts, apply score calibration ("no good results" when everything is weak) --> results
 ```
@@ -732,7 +748,7 @@ A request for 4 images is fanned out to 4 GPUs (same GPU-seconds; up to ~4× low
 ```
 
 - **Storage**: 2B pairs × ~50 KB per resized JPEG ≈ **100 TB** (+ ~1 TB text/metadata) → ~100K one-GB shards. Embeddings for filtering/dedup: 2B × 768-d × 2 B ≈ 3 TB.
-- **CLIP-score filtering** works well in practice (keeping roughly the top ~30 % by CLIP ViT-L/14 score was a strong DataComp baseline). Cost: ViT-L/14 at 224² ≈ 81 GMACs ≈ 162 GFLOPs per image → 2B × 162 GFLOPs ≈ 3.2·10²⁰ FLOPs ≈ 3.2·10²⁰ / (4·10¹⁴ FLOP/s) ≈ 8·10⁵ GPU-s ≈ **225 H100-hours ≈ 0.4 % of the training run** (computed below) — cheap relative to its benefit; I/O and decoding usually dominate.
+- **CLIP-score filtering** works well in practice (keeping roughly the top ~30 % by CLIP ViT-L/14 score was a strong DataComp baseline; combined with image-based clustering it was DataComp's best baseline and produced DataComp-1B). Cost: ViT-L/14 at 224² ≈ 81 GMACs ≈ 162 GFLOPs per image → 2B × 162 GFLOPs ≈ 3.2·10²⁰ FLOPs ≈ 3.2·10²⁰ / (4·10¹⁴ FLOP/s) ≈ 8·10⁵ GPU-s ≈ **225 H100-hours ≈ 0.4 % of the training run** (computed below) — cheap relative to its benefit; I/O and decoding usually dominate.
 - **Loader throughput check (VLM)**: at ~4.8M tokens/s (below), if ~half are image tokens at 576/image → ≈ 4.2K images/s cluster-wide ≈ 65 images/s per node and ≈ 210 MB/s of reads — easy.
 - **Contrast (CLIP ViT-B/16 training)**: ≈ 3 × (35 + ~10) ≈ 135 GFLOPs per sample → even at 30 % of H100 peak ≈ 2.2K samples/s per GPU ≈ **18K images/s per node** → CPU JPEG decoding needs tens of cores per node; use pre-resized shards and/or GPU decoding (nvJPEG/DALI). Small models are data-loader-bound; big models are compute-bound.
 
@@ -762,8 +778,8 @@ A request for 4 images is fanned out to 4 GPUs (same GPU-seconds; up to ~4× low
 **Training compute** (C ≈ 6·N·D: ~2N FLOPs/token forward + ~4N backward):
 - C = 6 × 7·10⁹ × 2·10¹² = **8.4·10²² FLOPs**.
 - H100 SXM BF16 dense peak ≈ 989 TFLOP/s (approximate); assume **MFU = 40 %** → ≈ 396 TFLOP/s per GPU.
-- GPU-seconds = 8.4·10²² / 3.96·10¹⁴ ≈ 2.12·10⁸ s → **≈ 58,900 GPU-hours**.
-- On 512 GPUs: 58,900 / 512 ≈ 115 h ≈ **4.8 days**; budget +10–20 % for restarts, evals and stragglers → ~5.5 days.
+- GPU-seconds = 8.4·10²² / 3.96·10¹⁴ ≈ 2.12·10⁸ s → **≈ 59,000 GPU-hours**.
+- On 512 GPUs: 59,000 / 512 ≈ 115 h ≈ **4.8 days**; budget +10–20 % for restarts, evals and stragglers → ~5.5 days.
 - Cluster throughput: tokens/s = MFU × n_GPU × peak / (6N) = 0.4 × 512 × 989·10¹² / (4.2·10¹⁰) ≈ **4.8M tokens/s** (≈ 9.4K tokens/s per GPU).
 - Global batch: 512 GPUs × b = 2 × 4,096 = **4.19M tokens/step** (no gradient accumulation) → ≈ 2·10¹² / 4.19·10⁶ ≈ 477K steps; step time ≈ 4.19M / 4.8M ≈ **0.87 s**.
 - Cost at an assumed $3/GPU-hour: ≈ **$177K** for the final run; ablations and failed runs often cost several times that.
@@ -947,8 +963,8 @@ Measured numbers vary widely with framework, batch size, precision (INT8/TensorR
 | 1B | 512 | binary (1 bit/dim) | 64 | ~64 GB |
 
 - **PQ**: split the d-dim vector into m sub-vectors, quantise each to one of 2⁸ = 256 centroids → m bytes/vector; distances via lookup tables. Compression vs float32 = 4d/m (512-d, m = 64 → 32×). OPQ (a learned rotation) reduces the error.
-- **IVF**: k-means into nlist cells, search nprobe cells → scans ≈ N × nprobe / nlist codes. Faiss guidance: nlist ≈ 4√N–16√N. Example 1B vectors, nlist = 2¹⁸ = 262,144, nprobe = 128 → ≈ 488K codes (≈ 31 MB of 64-byte codes) per query.
-- **HNSW**: graph with ~2·M neighbours at the bottom layer → ~2·M × 4 B ≈ 256 B/vector of links at M = 32, on top of the vectors. High recall, low latency, memory-heavy.
+- **IVF**: k-means into nlist cells, search nprobe cells → scans ≈ N × nprobe / nlist codes. Rule of thumb nlist ≈ 4√N–16√N (the Faiss wiki states it for < 1M vectors and suggests 2¹⁶–2²⁰ lists with an HNSW coarse quantiser at 1M–1B). Example 1B vectors (4√N–16√N ≈ 126K–506K), nlist = 2¹⁸ = 262,144, nprobe = 128 → ≈ 488K codes (≈ 31 MB of 64-byte codes) per query.
+- **HNSW**: graph with ~2·M neighbours at the bottom layer → ~2·M × 4 B ≈ 256 B/vector of links at M = 32, on top of the vectors (Faiss documents HNSW memory as d × 4 + M × 2 × 4 bytes/vector). High recall, low latency, memory-heavy.
 - **Brute force at 1B**: 1B × 512 ≈ 5·10¹¹ MACs per query, and 1 TB (FP16) must be read → needs sharding across many GPUs/hosts → use ANN + re-rank instead.
 - Measure ANN recall@k against exact search; re-rank the top candidates with full-precision vectors if needed.
 
