@@ -1,0 +1,25 @@
+id = "mixup-cutmix"
+title = "Mixup and CutMix Augmentation"
+description = "Implement batch-level Mixup and CutMix with soft labels, a recomputed CutMix lambda and all randomness drawn from a torch.Generator."
+difficulty = "easy"
+number = 15
+set = "v4"
+category = "vision"
+tracks = ["basics"]
+
+# GENERATED from the grader spec — edit python/torchleet/problems/*.py, then run: generate.py hints
+hints = [
+  "Both functions pick one lam per batch and one random permutation perm of the batch; sample i is mixed with sample perm[i]. Labels are mixed with the same lam and perm, so a one-hot row becomes lam on its class and 1 - lam on the partner's.",
+  "torch.distributions.Beta cannot take a generator. A Beta(a, a) draw is G1 / (G1 + G2) with G1, G2 independent Gamma(a) draws, and torch._standard_gamma(concentration_tensor, generator=g) draws Gammas from your generator; torch.randperm and torch.randint take generator= too.",
+  "CutMix: cut_h = int(H * sqrt(1 - lam)), cut_w likewise, centre (cy, cx) uniform over the image, clip the box edges to [0, H] and [0, W], copy that region from x[perm] into a clone of x, then set lam = 1 - box_area / (H * W) before mixing labels.",
+]
+
+[notebooks]
+question = "mixup-cutmix.ipynb"
+solution = "mixup-cutmix_SOLN.ipynb"
+
+[grading]
+tier = "A"        # A=auto-graded B=partial C=not auto-graded
+entries = ["mixup", "cutmix"]
+extras = []
+device = "cpu"

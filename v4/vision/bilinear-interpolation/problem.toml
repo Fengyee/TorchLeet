@@ -1,0 +1,25 @@
+id = "bilinear-interpolation"
+title = "Bilinear Interpolation from Scratch"
+description = "Re-implement F.interpolate's bilinear (both align_corners conventions) and nearest resize as vectorized gathers, matching PyTorch values and gradients."
+difficulty = "medium"
+number = 14
+set = "v4"
+category = "vision"
+tracks = ["basics"]
+
+# GENERATED from the grader spec — edit python/torchleet/problems/*.py, then run: generate.py hints
+hints = [
+  "Bilinear is separable: work out, for each output row, which two input rows it reads and with what weights, do the same for columns, then gather and blend. Those index/weight vectors depend only on the sizes, never on pixel values.",
+  "align_corners=False maps output index d to src = (d + 0.5) * in/out - 0.5 (pixel centres line up) and PyTorch clamps a negative src to 0; align_corners=True maps d to d * (in - 1)/(out - 1), and to 0 when out == 1.",
+  "From src: i0 = floor(src) clamped to in-1, i1 = min(i0 + 1, in-1), w = src - i0. Index whole rows with x[:, :, i0, :] and x[:, :, i1, :], blend with (1-w) and w reshaped to broadcast over the row axis, then repeat along the last axis.",
+]
+
+[notebooks]
+question = "bilinear-interpolation.ipynb"
+solution = "bilinear-interpolation_SOLN.ipynb"
+
+[grading]
+tier = "A"        # A=auto-graded B=partial C=not auto-graded
+entries = ["resize_bilinear", "resize_nearest"]
+extras = []
+device = "cpu"
