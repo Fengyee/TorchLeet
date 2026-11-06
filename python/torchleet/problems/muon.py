@@ -263,7 +263,7 @@ def check_muon_reduces_loss_on_a_small_linear_model(ns):
         f"200 Muon steps should at least halve the MSE of a tiny linear "
         f"model: loss went {first:.4f} -> {final:.4f}. Check both branches — "
         "the 2D weight needs momentum + orthogonalization + the "
-        "sqrt(max(m,n)/min(m,n)) scale, the 1D bias needs the AdamW fallback")
+        "sqrt(max(1, rows/cols)) scale, the 1D bias needs the AdamW fallback")
 
 
 CHECKS = [

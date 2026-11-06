@@ -78,7 +78,9 @@ def check_adamw_matches_torch_builtin(ns):
         "torch.optim.AdamW run in lockstep. AdamW = Adam plus "
         "p.mul_(1 - lr * weight_decay) applied directly to the parameter — "
         "adding weight_decay * p to the gradient instead is L2 regularization "
-        "and drifts away from this trajectory")
+        "and drifts away from this trajectory. Decay the parameter BEFORE the "
+        "Adam step (theta_{t-1}, as in the paper and torch); decaying after it "
+        "is off by lr * weight_decay * step on every step")
 
 
 def check_adamw_decays_params_with_zero_gradient(ns):

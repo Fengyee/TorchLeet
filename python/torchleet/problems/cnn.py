@@ -56,6 +56,23 @@ def check_batch_agnostic(ns):
             f"batch size {b} gave {tuple(out.shape)}, expected {(b, CLASSES)}"
 
 
+def check_returns_logits_not_probabilities(ns):
+    """nn.CrossEntropyLoss applies log-softmax itself, so the model must return
+    raw logits. A softmax at the end still lets the loss go down, so only this
+    catches it: every row non-negative and summing to 1."""
+    m = _eval_model(ns)
+    with torch.no_grad():
+        out = m(torch.randn(8, *SHAPE))
+    rows = out.sum(dim=1)
+    is_softmax = bool((out >= 0).all()) and torch.allclose(
+        rows, torch.ones_like(rows), atol=1e-4)
+    assert not is_softmax, (
+        "every output row is non-negative and sums to 1, so the model ends in a "
+        "softmax. Return raw logits: nn.CrossEntropyLoss applies log-softmax "
+        "itself, and a softmax in front of it squashes the scores into [0, 1] "
+        "and slows learning")
+
+
 def check_gradients_reach_all_parameters(ns):
     m = _model(ns)
     out = m(torch.randn(2, *SHAPE))
@@ -91,6 +108,7 @@ def check_can_learn(ns):
 CHECKS = [
     check_output_shape,
     check_batch_agnostic,
+    check_returns_logits_not_probabilities,
     check_gradients_reach_all_parameters,
     check_can_learn,
 ]

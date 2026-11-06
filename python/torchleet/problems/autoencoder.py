@@ -51,24 +51,53 @@ def check_output_is_in_pixel_range(ns):
         "end the decoder with a Sigmoid")
 
 
+def _activation_sizes(m, x):
+    """(per-image numel, module name) of every tensor a submodule produces while
+    the model reconstructs x."""
+    names = {id(mod): name for name, mod in m.named_modules()}
+    sizes, hooks = [], []
+
+    def hook(mod, inp, out):
+        outs = out if isinstance(out, (tuple, list)) else (out,)
+        for o in outs:
+            # skip image-shaped tensors: the reconstruction is not a code
+            if (torch.is_tensor(o) and o.ndim >= 1 and o.shape[0] == x.shape[0]
+                    and tuple(o.shape[1:]) != tuple(x.shape[1:])):
+                sizes.append((o[0].numel(), names[id(mod)]))
+
+    for mod in m.modules():
+        if mod is not m:
+            hooks.append(mod.register_forward_hook(hook))
+    try:
+        with torch.no_grad():
+            m(x)
+    finally:
+        for h in hooks:
+            h.remove()
+    return sizes
+
+
 def check_encoder_is_a_bottleneck(ns):
-    """The latent code must hold fewer numbers than the image.
+    """Somewhere between input and reconstruction the representation must hold
+    fewer numbers than the image.
 
     An over-complete code (e.g. a 64x7x7 feature map = 3136 numbers for a 784-pixel
     image) lets the network approach the identity and reconstruct anomalies too,
-    which is exactly what an anomaly detector must not do.
+    which is exactly what an anomaly detector must not do. The smallest output of
+    any submodule on the forward pass is measured, so the check does not depend on
+    where the bottleneck layer lives (inside self.encoder or next to it).
     """
     m = c.build(ns, "Autoencoder")
-    enc = getattr(m, "encoder", None)
-    if enc is None:
-        raise Skip("no .encoder attribute to inspect")
-    with torch.no_grad():
-        z = enc(torch.rand(2, *SHAPE))
-    per_image = z[0].numel()
-    assert per_image < N_PIXELS, (
-        f"the encoder's code has {per_image} numbers per image, not fewer than the "
-        f"{N_PIXELS} input pixels — there is no bottleneck, so the model can learn "
-        "to copy anomalies too")
+    m.eval()
+    sizes = _activation_sizes(m, torch.rand(2, *SHAPE))
+    if not sizes:
+        raise Skip("the model has no submodules whose outputs can be inspected")
+    smallest, where = min(sizes, key=lambda t: t[0])  # the first one on ties
+    assert smallest < N_PIXELS, (
+        f"the smallest representation on the forward pass ({where}) has "
+        f"{smallest} numbers per image, not fewer than the {N_PIXELS} input "
+        "pixels — there is no bottleneck, so the model can learn to copy "
+        "anomalies too. Flatten and project to a small latent code with nn.Linear")
 
 
 def check_learns_to_reconstruct(ns):

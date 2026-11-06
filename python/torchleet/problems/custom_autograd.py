@@ -93,8 +93,11 @@ def _slope_param(ns, model, out):
     name = f"{ns.LearnedSiLUFunction.__name__}Backward"
     node = _find_node(out.grad_fn, name)
     assert node is not None, (
-        "the model's output does not go through LearnedSiLUFunction — call "
-        "LearnedSiLUFunction.apply(x, self.slope) inside forward")
+        "the model's output does not go through LearnedSiLUFunction with a "
+        "learnable slope — call LearnedSiLUFunction.apply(x, self.slope) inside "
+        "forward, with self.slope an nn.Parameter (autograd records no node for "
+        "the Function when none of its inputs requires grad, e.g. a buffer or a "
+        "detached slope)")
     assert len(node.next_functions) >= 2, \
         "LearnedSiLUFunction should take two inputs: (x, slope)"
     params = {id(p) for p in model.parameters()}

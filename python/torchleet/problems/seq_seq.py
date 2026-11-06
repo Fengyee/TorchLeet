@@ -13,7 +13,10 @@ attention: the context is a softmax-weighted sum over source positions scored
 by their content, so shuffling the encoder outputs along the source axis must
 not change the decoder's step at all, and any source length must work. A
 "location" attention that predicts a fixed number of weights from the decoder
-state alone (Linear(..., src_len)) fails both.
+state alone (Linear(..., src_len)) fails both. A decoder with no attention at
+all, whose context is the mean of the encoder outputs, passes both, so one more
+check feeds two sets of encoder outputs with the same mean: content-based
+weights tell them apart, an average cannot.
 """
 import torch
 import torch.nn as nn
@@ -187,6 +190,15 @@ def _decoder_inputs(batch=3, src=SRC, hidden=HIDDEN, layers=LAYERS, seed=1):
     return x, enc_out, h, c
 
 
+def _jitter(module, seed, scale=0.1):
+    """Add small noise to every parameter, so a zero-initialized one (e.g. the
+    attention vector v) cannot make a property hold or fail by accident."""
+    g = torch.Generator().manual_seed(seed)
+    with torch.no_grad():
+        for p in module.parameters():
+            p.add_(scale * torch.randn(p.shape, generator=g))
+
+
 def _decode(dec, x, enc_out, h, c):
     out = dec(x, enc_out, h, c)
     assert isinstance(out, (tuple, list)) and len(out) == 3, (
@@ -247,8 +259,36 @@ def check_decoder_reads_the_encoder_outputs(ns):
         "the context vector is not reaching the output")
 
 
-def check_decoder_gradients_reach_all_parameters(ns):
+def check_decoder_context_is_not_a_plain_average(ns):
+    """Shuffle-invariance alone also admits a decoder with no attention at all,
+    whose context is the plain mean of the encoder outputs. Reflect every
+    encoder output through the mean, h_i -> 2*mean - h_i: the mean (and so that
+    context) is unchanged, but content-based weights are not, so attention
+    changes the step. The parameters are jittered first so that a
+    zero-initialized v (uniform weights at init) is not mistaken for an
+    average."""
     dec = _decoder(ns)
+    dec.eval()
+    _jitter(dec, seed=7)
+    x, enc_out, h, c = _decoder_inputs(seed=6)
+    reflected = 2 * enc_out.mean(dim=1, keepdim=True) - enc_out
+    with torch.no_grad():
+        out1, h1, _ = _decode(dec, x, enc_out, h, c)
+        out2, h2, _ = _decode(dec, x, reflected, h, c)
+    dev = max(float((out1 - out2).abs().max()), float((h1 - h2).abs().max()))
+    assert dev > 1e-5, (
+        f"two sets of encoder outputs with the same mean over the source gave the "
+        f"same decoder step (max diff {dev:.1e}) — the context is the plain average "
+        "of the encoder outputs. Weight each h_i by softmax_i(v^T tanh(W_s s + "
+        "W_h h_i)), so the weights depend on the decoder state and on each "
+        "output's content")
+
+
+def check_decoder_gradients_reach_all_parameters(ns):
+    """Jittered first: a zero-initialized v blocks the gradient to W_s and W_h
+    at init without anything being off the forward path."""
+    dec = _decoder(ns)
+    _jitter(dec, seed=8)
     x, enc_out, h, c = _decoder_inputs(seed=5)
     enc_out.requires_grad_(True)
     out, h2, c2 = _decode(dec, x, enc_out, h, c)
@@ -304,6 +344,7 @@ CHECKS = [
     check_decoder_step_shapes_for_any_source_length,
     check_decoder_attention_is_content_based,
     check_decoder_reads_the_encoder_outputs,
+    check_decoder_context_is_not_a_plain_average,
     check_decoder_gradients_reach_all_parameters,
     check_seq2seq_can_learn_with_teacher_forcing,
 ]
