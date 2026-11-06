@@ -1,0 +1,25 @@
+id = "memory-flops-estimation"
+title = "Estimate Transformer Parameters, Memory and FLOPs"
+description = "Compute the exact parameter count of a Llama-style decoder, the training memory for weights, gradients and optimizer state, the KV-cache size and the 6ND training FLOPs — the back-of-envelope maths of infra interviews."
+difficulty = "medium"
+number = 26
+set = "v4"
+category = "systems"
+tracks = ["advanced"]
+
+# GENERATED from the grader spec — edit python/torchleet/problems/*.py, then run: generate.py hints
+hints = [
+  "Count module by module: token embedding (vocab x d), then per layer the attention projections, the MLP and two norms, then a final norm and the LM head. With GQA, k_proj and v_proj only produce n_kv_heads * head_dim outputs, where head_dim = d_model // n_heads.",
+  "A gated (SwiGLU) MLP has three d x d_ff matrices (gate, up, down), a plain MLP two. RMSNorm has a weight only (d); LayerNorm has weight + bias (2d). Tied embeddings mean the LM head reuses the embedding matrix, so count it once. bias=True adds one vector per Linear in attention and MLP (its out_features), never on the LM head.",
+  "Memory per parameter: fp32 = 4 (weights) + 4 (grads) + optimizer; bf16/fp16-mixed = 2 + 2 + 4 (fp32 master copy) + optimizer; AdamW/Adam add 8 (m and v in fp32), SGD with momentum 4, plain SGD 0. KV cache = 2 (K and V) * batch * seq_len * n_layers * n_kv_heads * head_dim * bytes. Training FLOPs = 6 * N * D: 2ND forward, 4ND backward.",
+]
+
+[notebooks]
+question = "memory-flops-estimation.ipynb"
+solution = "memory-flops-estimation_SOLN.ipynb"
+
+[grading]
+tier = "A"        # A=auto-graded B=partial C=not auto-graded
+entries = ["transformer_params", "training_memory_gb", "kv_cache_bytes", "training_flops"]
+extras = []
+device = "cpu"

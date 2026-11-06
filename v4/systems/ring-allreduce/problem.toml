@@ -1,0 +1,25 @@
+id = "ring-allreduce"
+title = "Ring All-Reduce and DDP Gradient Averaging"
+description = "Simulate W ranks and implement the bandwidth-optimal ring all-reduce (reduce-scatter + all-gather) through a message-logging network, then use it to average gradients across model replicas like PyTorch DDP."
+difficulty = "hard"
+number = 24
+set = "v4"
+category = "systems"
+tracks = ["advanced"]
+
+# GENERATED from the grader spec — edit python/torchleet/problems/*.py, then run: generate.py hints
+hints = [
+  "Give every rank a private working copy split into W chunks with torch.tensor_split (sizes differ by at most one, empty chunks are fine). Phase 1 (reduce-scatter) leaves each rank owning one fully-summed chunk; phase 2 (all-gather) passes those finished chunks around the ring.",
+  "Reduce-scatter step s: every rank r first sends chunk (r - s) % W to rank (r + 1) % W, then every rank receives from rank (r - 1) % W and ADDS the message into chunk (r - 1 - s) % W. After W - 1 steps rank r owns the complete sum of chunk (r + 1) % W.",
+  "All-gather step s: rank r sends chunk (r + 1 - s) % W, receives into chunk (r - s) % W and OVERWRITES it (copy_, never +=). For DDP: torch.cat the trainable grads (zeros_like(p) where p.grad is None) into one flat vector per replica, all-reduce once, divide by W, then torch.split by p.numel() and view_as(p) to write the grads back.",
+]
+
+[notebooks]
+question = "ring-allreduce.ipynb"
+solution = "ring-allreduce_SOLN.ipynb"
+
+[grading]
+tier = "A"        # A=auto-graded B=partial C=not auto-graded
+entries = ["ring_allreduce", "ddp_average_gradients"]
+extras = []
+device = "cpu"
