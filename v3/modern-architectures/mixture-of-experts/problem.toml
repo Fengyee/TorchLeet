@@ -1,7 +1,7 @@
 id = "mixture-of-experts"
 legacy_ids = ["v3-17"]
 title = "Implement Mixture of Experts Layer"
-description = "Build a gated MoE with top-k routing, load balancing loss, and expert capacity constraints for sparse computation."
+description = "Build a sparse MoE layer with top-k routing, gate-weighted combination of expert outputs, and a Switch-style load-balancing loss."
 difficulty = "hard"
 frequency = "very-likely"   # very-likely | common | emerging (derived from company reports)
 number = 17
@@ -12,8 +12,8 @@ tracks = ["advanced", "llm-path"]
 # GENERATED from the grader spec — edit python/torchleet/problems/*.py, then run: generate.py hints
 hints = [
   "Route each token to its top-k experts and weight their outputs by the gate probabilities.",
-  "Renormalize the top-k gate values so each token's weights sum to 1.",
-  "The aux loss penalizes imbalance: experts should receive roughly equal token shares.",
+  "Renormalize the top-k gate values so each token's weights sum to 1 (a softmax over just the k selected logits). Dispatch per expert: find the (token, slot) pairs that chose it, run only those tokens, and index_add the weighted outputs back.",
+  "Switch-Transformer aux loss: num_experts * sum_i f_i * P_i, where f_i is the fraction of routing assignments sent to expert i (a count, no gradient) and P_i is the mean softmax router probability of expert i (this carries the gradient). Uniform routing gives 1.",
 ]
 
 [notebooks]
