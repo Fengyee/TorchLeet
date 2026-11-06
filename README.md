@@ -35,7 +35,7 @@ the original problem set it has:
 
 ```bash
 git clone https://github.com/Fengyee/TorchLeet.git && cd TorchLeet
-pip install torch            # CPU is enough for everything except the Triton / FSDP problems
+pip install torch            # CPU is enough for every problem (see the Triton note below)
 pip install -e python/       # the `torchleet` grader (not on PyPI — install it from the repo)
 pip install jupyter
 jupyter lab
@@ -43,6 +43,11 @@ jupyter lab
 
 On Colab, each question notebook has an "Open in Colab" badge; install the grader there with
 `!pip install -q "git+https://github.com/Fengyee/TorchLeet#subdirectory=python"`.
+
+**Triton problems without a GPU:** `pip install triton` (Linux wheels only — on macOS use Colab or
+a Linux box) and set `TRITON_INTERPRET=1` *before* importing triton; kernels then run on CPU in
+Triton's interpreter, which is enough to check correctness (not speed). The grader skips the
+kernel checks, rather than failing them, when it can't run them.
 
 ## How to work a problem
 

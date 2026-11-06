@@ -9,7 +9,7 @@
 ## 0. 第一天开始前（30 分钟）
 
 ```bash
-pip install torch jupyter        # CPU 就够；Triton 题额外 pip install triton，用 TRITON_INTERPRET=1 在 CPU 上跑
+pip install torch jupyter        # CPU 就够；Triton 题额外 pip install triton（仅 Linux；Mac 用 Colab），用 TRITON_INTERPRET=1 在 CPU 上跑
 pip install -e python/           # 安装本仓库的自动评分器 torchleet
 jupyter lab
 ```
@@ -199,7 +199,7 @@ status()                         # 本机已通过的题
 |---|---|---|
 | **Applied MLE**（产品/业务） | `v4/ml-fundamentals/gradient-boosting`、`gmm-em`；system design 每周 2 次；breadth §1 指标/数据泄漏 | Swin、DiT、ring-allreduce |
 | **Research Scientist** | D19 的论文复现做两次；`v3/modern-architectures/mamba`、`v3/alignment-training/dpo`；breadth §9；research talk 打磨 | data-loading、int8-quantization |
-| **Research Engineer / ML Infra** | `v3/gpu-systems/fsdp`、`ring-attention`、`triton-fused-softmax`、`flash-attention-triton`（需要 GPU，可用 Colab）；`v3/llm-inference/continuous-batching`、`speculative-decoding` | GAN、decision-tree、Swin |
+| **Research Engineer / ML Infra** | `v3/gpu-systems/fsdp`、`ring-attention`（CPU 上模拟多卡）、`triton-fused-softmax`、`flash-attention-triton`（CPU 上用 `TRITON_INTERPRET=1` 验证正确性；想测速度再上 Colab GPU）；`v3/llm-inference/continuous-batching`、`speculative-decoding` | GAN、decision-tree、Swin |
 
 ---
 
@@ -211,7 +211,7 @@ status()                         # 本机已通过的题
 - 现代架构：`v3/modern-architectures/mamba`、`mixture-of-experts`、`sliding-window-attention`
 - LLM：`llm/Byte-Pair-Encoder`、`llm/RMS-Norm`、`llm/Sinusoidal-Positional-Embedding`、`llm/SmolLM`、`v3/llm-decoding/*`、`v3/llm-inference/speculative-decoding`、`continuous-batching`
 - 对齐：`v3/alignment-training/dpo`、`ppo-rlhf`、`grpo`
-- GPU 系统：`v3/gpu-systems/*`（需要 GPU）
+- GPU 系统：`v3/gpu-systems/*`（CPU 可做：FSDP/ring attention 用模拟多卡，Triton 用 `TRITON_INTERPRET=1`）
 - 优化器：`torch/hard/optimizers/adam`、`muon`
 - 数据：`v3/data-loading/*` 其余三题
 
