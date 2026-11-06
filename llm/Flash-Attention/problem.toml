@@ -1,7 +1,7 @@
 id = "flash-attention"
 title = "Flash Attention"
 description = "Implement the FlashAttention forward pass — tiled attention with an online softmax (running max, running denominator, rescaled accumulator) and the logsumexp output — in PyTorch, then as a Triton kernel."
-difficulty = "medium"
+difficulty = "hard"
 frequency = "emerging"   # very-likely | common | emerging (derived from company reports)
 set = "v2"
 
