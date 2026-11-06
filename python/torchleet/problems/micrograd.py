@@ -257,7 +257,8 @@ def check_random_dags_with_shared_nodes_match_autograd(ns):
 def check_deep_chain_has_no_recursion_limit(ns):
     depth = 5000
     old = sys.getrecursionlimit()
-    sys.setrecursionlimit(min(old, 1000))      # Python's default; don't let a raised limit hide recursion
+    limit = min(old, 1000)
+    sys.setrecursionlimit(limit)               # Python's default; don't let a raised limit hide recursion
     try:
         x = ns.Value(0.5)
         y = x
@@ -269,6 +270,10 @@ def check_deep_chain_has_no_recursion_limit(ns):
             raise AssertionError(
                 f"RecursionError on a {depth}-deep chain at Python's default recursion limit "
                 f"— build the topological order with an explicit stack, not recursion") from None
+        assert sys.getrecursionlimit() == limit, (
+            f"backward() changed the recursion limit from {limit} to "
+            f"{sys.getrecursionlimit()} — build the topological order iteratively instead of "
+            f"raising sys.setrecursionlimit")
         assert abs(_num(x.grad, "x.grad") - (depth + 1)) < 1e-6, \
             f"y = x + x + ... ({depth + 1} terms): x.grad should be {depth + 1}, got {x.grad}"
         assert abs(y.data - 0.5 * (depth + 1)) < 1e-6, f"y.data should be {0.5 * (depth + 1)}"

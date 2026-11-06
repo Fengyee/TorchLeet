@@ -5,7 +5,8 @@ the *same* (randomized) affine parameters, in float64: forward output AND the
 gradients w.r.t. the input, weight and bias (driven by a random upstream
 gradient, since the gradient of sum(BN(x)) w.r.t. x is ~0 and would hide bugs),
 in train and eval mode. BatchNorm's running statistics are compared after
-several training steps on batches of different shapes. Dropout is checked
+several training steps on batches of different shapes, and must not carry
+autograd history (updated under no_grad). Dropout is checked
 statistically (keep-rate, unbiasedness) and on its edge cases.
 """
 import contextlib
@@ -160,6 +161,16 @@ def check_batchnorm_train_mode_matches_torch(ns):
         mine.train(), ref.train()
         x = _x(shape, seed=10 + k, scale=2.0, shift=1.5)
         _compare(mine, ref, x, f"BatchNorm2d train, x{shape}", seed=k)
+        # The input above required grad, so batch stats carried autograd history.
+        for name in ("running_mean", "running_var"):
+            buf = getattr(mine, name, None)
+            if torch.is_tensor(buf):
+                assert not buf.requires_grad and buf.grad_fn is None, (
+                    f"BatchNorm2d train, x{shape}: after a forward on an input that requires "
+                    f"grad, {name} is part of the autograd graph (requires_grad=True). Update "
+                    f"the running stats under torch.no_grad() (or from detached statistics) — "
+                    f"otherwise every batch's graph stays alive and a later eval-mode backward "
+                    f"fails")
 
 
 def check_batchnorm_running_stats_match_torch(ns):
