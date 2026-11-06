@@ -47,8 +47,9 @@ class Attn(nn.Module):
         if kv_cache is not None:
             k, v = kv_cache.update(k, v)
         s = q @ k.transpose(-2, -1) / math.sqrt(self.d_head)
-        if kv_cache is None:
-            m = torch.tril(torch.ones(S, S)).bool()
+        L = k.shape[2]                       # cached + new positions
+        if S > 1:                            # a multi-token chunk (prefill) is causal,
+            m = torch.ones(S, L).tril(diagonal=L - S).bool()   # offset by the cache length
             s = s.masked_fill(~m, float("-inf"))
         o = (s.softmax(-1) @ v).transpose(1, 2).reshape(B, S, self.d_model)
         return self.W_o(o)
@@ -84,9 +85,11 @@ class SdpaAttn(Attn):
                    for n in "qkv")
         if kv_cache is not None:
             k, v = kv_cache.update(k, v)
-            o = F.scaled_dot_product_attention(q, k, v)
-        else:
-            o = F.scaled_dot_product_attention(q, k, v, is_causal=True)
+        L = k.shape[2]
+        # is_causal=True aligns the mask top-left, which is wrong once a cache
+        # makes L > S; pass the bottom-right-aligned mask explicitly.
+        mask = torch.ones(S, L, dtype=torch.bool).tril(diagonal=L - S)
+        o = F.scaled_dot_product_attention(q, k, v, attn_mask=mask)
         o = o.permute(0, 2, 1, 3).reshape(B, S, self.d_model)
         return F.linear(o, self.W_o.weight)
 
@@ -100,6 +103,23 @@ class NoPastAttn(Attn):
                    for t in (self.W_q(x), self.W_k(x), self.W_v(x)))
         if kv_cache is not None:
             kv_cache.update(k, v)
+        s = q @ k.transpose(-2, -1) / math.sqrt(self.d_head)
+        if kv_cache is None:
+            s = s.masked_fill(~torch.tril(torch.ones(S, S)).bool(), float("-inf"))
+        o = (s.softmax(-1) @ v).transpose(1, 2).reshape(B, S, self.d_model)
+        return self.W_o(o)
+
+
+class DecodeOnlyMaskAttn(Attn):
+    """Broken: masks only when there is no cache, so a multi-token prefill into
+    a cache attends to future tokens (the bug the original solution had)."""
+
+    def forward(self, x, kv_cache=None):
+        B, S, _ = x.shape
+        q, k, v = (t.view(B, S, self.num_heads, self.d_head).transpose(1, 2)
+                   for t in (self.W_q(x), self.W_k(x), self.W_v(x)))
+        if kv_cache is not None:
+            k, v = kv_cache.update(k, v)
         s = q @ k.transpose(-2, -1) / math.sqrt(self.d_head)
         if kv_cache is None:
             s = s.masked_fill(~torch.tril(torch.ones(S, S)).bool(), float("-inf"))
@@ -231,6 +251,7 @@ CASES = [
     ("kv-cache canonical", True, "kv-cache", (), dict(KVCache=KVCache, CachedAttention=Attn)),
     ("kv-cache divergent", True, "kv-cache", (), dict(KVCache=ListKVCache, CachedAttention=SdpaAttn)),
     ("kv-cache broken", False, "kv-cache", (), dict(KVCache=KVCache, CachedAttention=NoPastAttn)),
+    ("kv-cache no prefill mask", False, "kv-cache", (), dict(KVCache=KVCache, CachedAttention=DecodeOnlyMaskAttn)),
     ("softmax correct", True, "triton-fused-softmax", (online_softmax,), {}),
     ("softmax unstable", False, "triton-fused-softmax", (unstable_softmax,), {}),
     ("cnn canonical", True, "cnn", (Cnn,), {}),

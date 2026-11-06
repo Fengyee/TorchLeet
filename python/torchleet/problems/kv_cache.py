@@ -94,9 +94,31 @@ def check_reset_clears_cache(ns):
         f"after reset() the cache should be empty, got K {tuple(fk.shape)}"
 
 
+def check_prefill_then_decode_matches_full(ns):
+    """Real generation prefills the prompt in ONE cached call, then decodes. The
+    chunk needs a causal mask offset by the cache length."""
+    B, D_MODEL, HEADS, SEQ = 2, 64, 4, 16
+    torch.manual_seed(0)
+    m = ns.CachedAttention(D_MODEL, HEADS).eval()
+    x = torch.randn(B, SEQ, D_MODEL)
+    with torch.no_grad():
+        full = m(x, kv_cache=None)
+        cache = ns.KVCache()
+        parts = [m(x[:, :6], kv_cache=cache)]                 # prefill into an empty cache
+        parts += [m(x[:, t:t + 1], kv_cache=cache) for t in range(6, 10)]
+        parts.append(m(x[:, 10:], kv_cache=cache))           # a chunk appended to a non-empty cache
+    got = torch.cat(parts, dim=1)
+    diff = float((full - got).abs().max())
+    assert torch.allclose(full, got, atol=1e-5), (
+        f"prefilling 6 tokens with the cache, decoding 4, then appending a 6-token chunk "
+        f"disagrees with full recomputation (max diff {diff:.2e}). A multi-token chunk "
+        f"still needs a causal mask, offset by the cached length.")
+
+
 CHECKS = [
     check_cache_update_shapes,
     check_cache_accumulates_in_order,
     check_cached_equals_full_recomputation,
+    check_prefill_then_decode_matches_full,
     check_reset_clears_cache,
 ]
