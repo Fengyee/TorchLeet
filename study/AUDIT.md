@@ -203,4 +203,46 @@
 
 ## 独立复核结果
 
-（复核进行中，完成后补充。）
+审计 agent 自己说“已验证”不算数。每一组改动（9 组审计修复 + 26 道新题）都交给**另一个没参与编写的 agent** 复核：它要自己写“写法不同但正确”的实现去确认不会被误杀，再写作者没想到的错误实现去确认会被拒绝，并逐条核对新增的说法（对照论文、PyTorch 源码、HuggingFace / torchvision / pycocotools 源码）。
+
+**结论：没有发现被“改错”的答案代码；但复核又抓出了一批评分器漏洞和不准确的说法，全部已修复。** 这也说明单轮审计不够——第二轮复核是有必要的。
+
+### 复核新发现并已修复的主要问题
+
+| 范围 | 问题 | 性质 |
+|---|---|---|
+| `lstm` | 没有输入门的 “LSTM”（`C = f*C + g`）能通过评分器 | 评分器漏洞 |
+| `seq-seq` | 完全没有 attention（context = encoder 输出的平均）的 decoder 能通过 | 评分器漏洞 |
+| `adamw` | 审计“修好”的自测在空 stub 上仍然 PASS | 修复不完整 |
+| `ppo-rlhf`、`grpo` | 比值写反的 k3 KL 估计（数值偏大约 46%）能通过梯度检查 → 加数值检查；补充 k3 的期望梯度是 ∇KL(π_ref‖π_θ) | 评分器漏洞 + 说明 |
+| `gradient-checkpointing` | 题目要求的 dropout 重放（要求 5）从未被评分 | 评分器漏洞 |
+| `inference-engine` | 审计新加的“batch 输出 = 单独输出”检查对约 2% 的**正确**模型永久失败（近似平局时的采样）→ 改为近贪心 + 平局检测，400 次 0 误判 | 误杀正确代码 |
+| `kmeans`、`3dcnn`、`cnn-scratch`、`softmax`、`custom-loss` | L1 距离的 k-means、返回 Dice 系数而非 loss、绕过“禁止调用内置函数”的写法均能通过 | 评分器漏洞 |
+| `ddpm`、`ddim-cfg` | 用 x₀ + 后验均值写的正确 `p_sample` 被 float32 抵消误杀；只在 s>1 时做 guidance 的错误写法能通过 | 误杀 + 漏洞 |
+| `rotary-positional-embedding`、`smollm` | `Rotary` 的频率表从未被检查；忽略传入 attention mask 的注意力层能通过 | 评分器漏洞 |
+| `llm/Flash-Attention` | Triton kernel 在 N 不是 block 整数倍时越界写；并把题目和答案拆成两个 notebook | 正确性 |
+| `fsdp` | PyTorch `SHARD_GRAD_OP` 在 backward 后会重新分片参数，原“静止时参数完整”的内存模型描述的是 DeepSpeed ZeRO-2 | 说法错误 |
+| `detection-map` | “原版 VOC devkit 用 IoU > t”是错的（MATLAB 版用 ≥，只有 Python 移植版用 >）；“低分预测会略微降低 mAP”是错的（all-point AP 不会下降） | 说法错误 |
+| `decision-tree`、`pca`、`gmm-em`、`classification-metrics`（新题） | 用 entropy 分裂、新数据用自己的均值中心化、协方差用旧均值更新、macro 平均漏掉只出现在预测里的类——均能通过 | 评分器漏洞 |
+| `normalization-layers`、`micrograd`（新题） | running stats 不在 `no_grad` 下更新（会进入计算图）能通过；在 `backward()` 里调大递归上限能绕过约束 | 评分器漏洞 |
+| `vector-search`（新题） | 从不更新质心的 k-means 能通过；确定性检查本身不稳定 | 漏洞 + 不稳定 |
+| `training-utilities`（新题） | 教科书“速度形式”的 SGD（`v = μv − ηg`）能通过——它只在学习率不变时与 `torch.optim.SGD` 等价，而原检查恰好全用常数学习率 → 加入变学习率轨迹检查 | 评分器漏洞 |
+| `losses-from-scratch`（新题） | “clamp 版稳定 BCE 在 x=0 处斜率为 −1”在 torch 2.15 中不成立（实际为 0） | 说法错误 |
+| `mlp-backprop`、`ring-allreduce`、`int8-quantization` 等（新题） | 多处说明性错误：`nn.Linear` 默认初始化方差是 He 的 1/6 而非 1/3；ZeRO-2 通信量与 DDP 相同；零点行和技巧属于 FBGEMM 而非 cuBLASLt | 说法错误 |
+| `python/torchleet/runner.py` | 进度文件被截断时 `check()` 会对正确答案报 “grader crashed” → 容错读取 + 原子写入 | 工具 bug |
+
+### 复核确认无误的关键点（节选）
+
+- Swin 修正后的 shifted-window mask 与官方 `img_mask` 构造在 H=2…29、所有窗口大小和所有 shift 下完全一致。
+- Beam search 在 300 个随机小模型上与暴力搜索结果完全一致。
+- 采样题的分布检验（TV 距离）对正确实现的误判率 < 5×10⁻⁶；speculative decoding 的联合分布检验阈值距离噪声约 11σ。
+- `data-parallel-loading` 与 `torch.utils.data.DistributedSampler` 在 15,288 种配置下逐一相同。
+- SmolLM 的配置表与 HuggingFace 上的 `config.json` 一致（134,515,008 参数），加载真实权重后 logits 误差 1.4e-5、贪心生成文本完全相同。
+- `memory-flops-estimation` 中所有数字（Llama-2-7B 6,738,415,616 参数、AdamW 107.8 GB、KV cache 0.5 MiB/token、ZeRO 各阶段每卡显存等）重新计算无误。
+- int8 题的“float32 累加会被抓住”检查是确定性的，不会在其他 BLAS 上误杀正确代码。
+
+### 最终状态
+
+- 98 道题（72 道原题 + 26 道新题），其中 92 道自动评分：每一道的标准答案都通过自己的评分器（`scripts/validate_specs.py`）。
+- 评分器回归测试 `python/test_grader.py`：全部通过（新增了 RoPE interleaved、GQA tiled、KV-cache prefill 等用例）。
+- `scripts/generate.py check`：0 个问题。
