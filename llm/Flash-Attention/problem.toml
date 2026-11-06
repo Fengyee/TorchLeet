@@ -14,10 +14,10 @@ hints = [
 
 [notebooks]
 question = "flash-attention.ipynb"
-solution = ""   # no separate solution file
+solution = "flash-attention_SOLN.ipynb"
 
 [grading]
 tier = "A"        # A=auto-graded B=partial C=not auto-graded (SEEDED, confirm)
 entries = ["flash_attention_pytorch"]
 extras = ["triton"]
-device = "cuda"
+device = "cpu"

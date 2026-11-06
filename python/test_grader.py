@@ -196,11 +196,50 @@ def rope_query_only(q, k, cos, sin):
     return q * cos + rotate_half(q) * sin, k
 
 
+def rotate_every_two(x):
+    """Correct, but the interleaved (RoFormer / GPT-J) pairing: (x_2i, x_2i+1)."""
+    x1, x2 = x[..., 0::2], x[..., 1::2]
+    return torch.stack((-x2, x1), dim=-1).flatten(-2)
+
+
+def rope_apply_interleaved(q, k, cos, sin):
+    return q * cos + rotate_every_two(q) * sin, k * cos + rotate_every_two(k) * sin
+
+
+# ----------------------------------------------------------------------- gqa
+def _gqa(q, k, v, num_query_heads, num_query_groups, W_q, W_k, W_v, W_o, mask, expand):
+    if num_query_heads % num_query_groups:
+        raise ValueError("num_query_groups must divide num_query_heads")
+    B, S, D = q.shape
+    dh, g = D // num_query_heads, num_query_heads // num_query_groups
+    Q = F.linear(q, W_q).view(B, S, num_query_heads, dh).transpose(1, 2)
+    K = expand(F.linear(k, W_k).view(B, S, num_query_groups, dh).transpose(1, 2), g)
+    V = expand(F.linear(v, W_v).view(B, S, num_query_groups, dh).transpose(1, 2), g)
+    s = Q @ K.transpose(-2, -1) / math.sqrt(dh)
+    if mask is not None:
+        s = s.masked_fill(~mask, float("-inf"))
+    o = (s.softmax(-1) @ V).transpose(1, 2).reshape(B, S, D)
+    return F.linear(o, W_o)
+
+
+def gqa(q, k, v, nh, ng, W_q, W_k, W_v, W_o, mask=None):
+    """K/V head j serves query heads j*g .. j*g + g - 1."""
+    return _gqa(q, k, v, nh, ng, W_q, W_k, W_v, W_o, mask,
+                lambda t, g: t.repeat_interleave(g, dim=1))
+
+
+def gqa_tiled(q, k, v, nh, ng, W_q, W_k, W_v, W_o, mask=None):
+    """Broken: .repeat tiles the K/V heads, so query head h gets K/V head h % ng."""
+    return _gqa(q, k, v, nh, ng, W_q, W_k, W_v, W_o, mask,
+                lambda t, g: t.repeat(1, g, 1, 1))
+
+
 # --------------------------------------------------------- gradient checkpointing
 class CkptFn(torch.autograd.Function):
     @staticmethod
     def forward(ctx, fn, *args):
         ctx.fn = fn
+        ctx.rng_state = torch.get_rng_state()   # so dropout in fn replays the same mask
         ctx.save_for_backward(*args)
         with torch.no_grad():
             return fn(*args)
@@ -208,7 +247,8 @@ class CkptFn(torch.autograd.Function):
     @staticmethod
     def backward(ctx, *grad_outputs):
         inputs = [t.detach().requires_grad_(t.requires_grad) for t in ctx.saved_tensors]
-        with torch.enable_grad():
+        with torch.random.fork_rng(devices=[]), torch.enable_grad():
+            torch.set_rng_state(ctx.rng_state)
             out = ctx.fn(*inputs)
         outs = out if isinstance(out, tuple) else (out,)
         pairs = [(o, g) for o, g in zip(outs, grad_outputs) if o.requires_grad]
@@ -260,6 +300,10 @@ CASES = [
     ("rope correct", True, "rotary-positional-embedding", (rotate_half, rope_apply), {}),
     ("rope no-op", False, "rotary-positional-embedding", (rotate_half, rope_noop), {}),
     ("rope query only", False, "rotary-positional-embedding", (rotate_half, rope_query_only), {}),
+    ("rope interleaved (GPT-J)", True, "rotary-positional-embedding",
+     (rotate_every_two, rope_apply_interleaved), {}),
+    ("gqa canonical", True, "grouped-query-attention", (gqa,), {}),
+    ("gqa tiled K/V heads", False, "grouped-query-attention", (gqa_tiled,), {}),
     ("ckpt correct", True, "gradient-checkpointing", (CkptFn, ckpt), {}),
     ("ckpt no dummy input", False, "gradient-checkpointing", (CkptFn, ckpt_no_dummy), {}),
     ("ckpt inputs-only grads", False, "gradient-checkpointing", (CkptFnInputsOnly, ckpt_inputs_only), {}),

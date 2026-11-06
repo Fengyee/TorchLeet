@@ -11,8 +11,13 @@ Which features form a rotation pair is a convention: half-split (i, i + d/2,
 GPT-NeoX / HF Llama) or interleaved (2i, 2i + 1, RoFormer / GPT-J). The checks
 read the pairing off the solver's own rotate_half and lay out cos/sin to match,
 so either convention passes.
+
+The Rotary module that builds the cos/sin tables is checked too when it is passed
+as well (check(..., Rotary=Rotary)); otherwise that check is reported as not verified.
 """
 import torch
+
+from torchleet.runner import Skip
 
 ENTRIES = ["rotate_half", "apply_rotary_pos_emb"]
 DEVICE = "cpu"
@@ -129,7 +134,35 @@ def check_scores_depend_only_on_relative_position(ns):
         "formula and the same per-position angles")
 
 
+def check_rotary_tables(ns):
+    """cos/sin from Rotary(dim, base) must be cos/sin(m * base^(-2i/dim)), laid out to
+    match the pairing of the solver's own rotate_half; a cache built for one length
+    must still give the right rows for shorter and for longer sequences."""
+    Rotary = getattr(ns, "Rotary", None)
+    if Rotary is None:
+        raise Skip("pass Rotary=Rotary as well to check the cos/sin tables")
+    for base in (10000.0, 500.0):
+        rotary = Rotary(D, base=base)
+        inv_freq = 1.0 / (base ** (torch.arange(0, D, 2).float() / D))
+        for seq in (S, 3, 2 * S):          # shorter after longer reuses the cache, then it grows
+            cos, sin = rotary(torch.randn(B, H, seq, D))
+            assert tuple(cos.shape[-2:]) == (seq, D) and tuple(sin.shape[-2:]) == (seq, D), (
+                f"for a sequence of {seq} positions cos/sin should end in ({seq}, {D}), "
+                f"got {tuple(cos.shape)} and {tuple(sin.shape)}")
+            want_cos, want_sin = _tables(ns, torch.outer(torch.arange(seq).float(), inv_freq))
+            got_cos = cos.reshape(-1, seq, D)[0].float()
+            got_sin = sin.reshape(-1, seq, D)[0].float()
+            err = max(float((got_cos - want_cos).abs().max()),
+                      float((got_sin - want_sin).abs().max()))
+            assert err < 1e-4, (
+                f"with base={base} and {seq} positions, cos/sin are off by up to {err:.2e} — "
+                "the angle of pair i at position m is m * base**(-2i/dim) (use the base "
+                "argument), laid out to match rotate_half's pairing, and a cached table "
+                "must be rebuilt when a longer sequence arrives")
+
+
 CHECKS = [check_rotate_half_shape, check_rotate_half_twice_negates,
           check_rotate_half_permutes_values, check_identity_rotation,
           check_quarter_turn, check_rotation_preserves_norm,
-          check_scores_depend_only_on_relative_position]
+          check_scores_depend_only_on_relative_position,
+          check_rotary_tables]

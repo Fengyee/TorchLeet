@@ -165,22 +165,30 @@ def check_attention_matches_reference(ns):
     Wq, Wk, Wv, Wo = (getattr(attn, n).weight.detach() for n in names)
     torch.manual_seed(8)
     x = torch.randn(B, S, HIDDEN)
-    mask = _causal()
 
     split = lambda t, h: t.view(B, S, h, HEAD_DIM).transpose(1, 2)
     q, k, v = split(x @ Wq.T, HEADS), split(x @ Wk.T, KV_HEADS), split(x @ Wv.T, KV_HEADS)
     cos, sin = _reference_tables(S, HEAD_DIM, 10000.0)
     rot = lambda t: t * cos + torch.cat((-t[..., HEAD_DIM // 2:], t[..., :HEAD_DIM // 2]), -1) * sin
-    o = F.scaled_dot_product_attention(rot(q), rot(k), v, attn_mask=mask, enable_gqa=True)
-    want = o.transpose(1, 2).reshape(B, S, HIDDEN) @ Wo.T
 
-    with torch.no_grad():
-        got = attn(x, mask)
-    got = got[0] if isinstance(got, tuple) else got
-    assert torch.allclose(got, want, atol=1e-5), (
-        f"RopeAttention disagrees with the reference (max diff {(got - want).abs().max():.2e}) "
-        "— check the 1/sqrt(head_dim) scale, that RoPE uses config.rope_theta and "
-        "rotates q and k only, and that query head i reads KV head i // n_rep")
+    # Causal, then causal + right padding (the last 2 keys of sequence 1 are padding):
+    # the mask is an input, so a block that ignores it and applies its own causal
+    # mask would attend to padding.
+    real = torch.ones(B, S, dtype=torch.bool)
+    real[1, -2:] = False
+    padded = _causal().masked_fill(~real[:, None, None, :], float("-inf"))
+    for what, mask in (("a causal mask", _causal()), ("a causal + padding mask", padded)):
+        o = F.scaled_dot_product_attention(rot(q), rot(k), v, attn_mask=mask, enable_gqa=True)
+        want = o.transpose(1, 2).reshape(B, S, HIDDEN) @ Wo.T
+        with torch.no_grad():
+            got = attn(x, mask)
+        got = got[0] if isinstance(got, tuple) else got
+        assert torch.allclose(got, want, atol=1e-5), (
+            f"with {what}, RopeAttention disagrees with the reference (max diff "
+            f"{(got - want).abs().max():.2e}) — check the 1/sqrt(head_dim) scale, that "
+            "RoPE uses config.rope_theta and rotates q and k only, that query head i "
+            "reads KV head i // n_rep, and that the attention_mask you are given is "
+            "added to the scores")
 
 
 def check_attention_output_shape(ns):
