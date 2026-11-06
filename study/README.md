@@ -60,9 +60,9 @@ status()                         # 本机已通过的题
 | 周 | 主题 | 目标 |
 |---|---|---|
 | **W1** | PyTorch 手感 + 深度学习基本功 + 经典 ML/评估 | 能不看文档写出 backprop、BN、CE、优化器、训练循环、指标 |
-| **W2** | 视觉 + Attention/Transformer + 多模态 | IoU/NMS/mAP、插值、MHA/GQA、ViT/MAE、CLIP/SigLIP、VLM connector |
-| **W3** | 生成模型深挖 + RS 能力 | VAE/GAN/DDPM/DDIM+CFG/Flow Matching/DiT/U-Net/FID；复现一篇论文核心 |
-| **W4** | 系统/RE + LLM 必备 + Mock + 速度训练 | 显存/FLOPs 估算、all-reduce、量化、KV cache、FlashAttention；限时重写 |
+| **W2** | 视觉 + Attention/Transformer + 多模态 | IoU/NMS/mAP、插值、MHA/GQA、ViT 组件/MAE、CLIP/SigLIP、自监督（SimCLR/DINO）、VLM connector、分割指标 |
+| **W3** | 生成模型深挖 + RS 能力 | VAE/VQ-VAE/DDPM/扩散参数化（ε/x₀/v、SNR）/DDIM+CFG/Flow Matching/DiT/U-Net/FID；复现一篇论文核心 |
+| **W4** | 系统/RE + LLM 必备 + Mock + 速度训练 | 显存/FLOPs 估算、all-reduce、张量并行、量化、BN 融合、KV cache、FlashAttention；限时重写 |
 
 每天约 3 小时（周一–周六），周日 2 小时复盘，合计 ~20 小时/周。标注的时间是**含对答案和记笔记**的预算。
 
@@ -117,15 +117,16 @@ status()                         # 本机已通过的题
 | | 🟡 `llm/Multi-Head-Attention` ⭐ | 50m | reshape/transpose 的 shape 管理 |
 | | 🟡 `llm/Grouped-Query-Attention` | 40m | `repeat_interleave` 的分组方式 |
 | | breadth §4 Transformers | 30m | |
-| D10 | 🟡 `v3/modern-architectures/2d-positional-embeddings` | 45m | |
+| D10 | 🟡 `v4/vision/vit-components` | 75m | patch 行优先顺序；pos-embed 插值时 CLS 不参与；DropPath 按样本丢、除以 keep_prob |
 | | 🔴 `v3/modern-architectures/vit-mae` | 90m | patchify、随机 mask（argsort 噪声）、只在 masked patch 上算 loss |
 | | breadth §3 CNN & vision（前半） | 30m | |
 | D11 | 🟡 `v3/modern-architectures/contrastive-loss-clip` ⭐ | 45m | 对称 InfoNCE、可学习温度 |
 | | 🟢 `v4/multimodal/siglip-loss` | 30m | sigmoid loss，为什么省 all-gather |
 | | 🟡 `v4/multimodal/vlm-connector` | 75m | MLP projector / Perceiver resampler / 图像 token 拼接 + label mask |
 | | breadth §5 多模态 | 30m | |
-| D12 | 🔴 `v3/modern-architectures/swin-transformer` | 90m | window partition、cyclic shift + mask、相对位置偏置（原仓库这里的 mask 是错的，见 AUDIT） |
+| D12 | 🟡 `v4/vision/self-supervised-losses` | 60m | SimCLR 的 NT-Xent（mask 掉对角线、2N 个 anchor）；DINO 的 centering + sharpening、teacher 不回传梯度、EMA |
 | | 🟡 `v4/multimodal/vector-search` | 60m | 精确 top-k（分块）+ IVF；recall@k |
+| | 🟢 `v4/vision/segmentation-metrics` | 30m | 一次 `bincount` 得混淆矩阵；mIoU 用整个数据集累加的混淆矩阵算，不是逐图平均 |
 | | breadth §3 CNN & vision（后半：检测/分割/自监督） | 30m | |
 | D13 | **System design**：案例 a 视觉搜索 + 案例 d 图文检索 | 2h | 先自己 35 分钟写完整方案，再对照文档 |
 | | 🟡 `llm/Rotary-Positional-Embedding` | 45m | 相对位置性质：⟨R_m q, R_n k⟩ = ⟨q, R_{n−m} k⟩，位置只以 n−m 的形式出现 |
@@ -136,6 +137,7 @@ status()                         # 本机已通过的题
 - ViT 和 CNN 的归纳偏置差别？MAE 为什么 mask 75%？为什么 encoder 只处理可见 patch？
 - CLIP 的温度为什么要可学习并 clamp？SigLIP 相比 CLIP 好在哪？
 - NMS 为什么不可微？DETR 怎么去掉 NMS？mAP@0.5 和 COCO mAP@[.5:.95] 的区别？
+- SimCLR 为什么要 mask 掉自身相似度？DINO 靠什么防止 collapse？为什么 mIoU 要在整个数据集上算？
 
 ---
 
@@ -144,16 +146,16 @@ status()                         # 本机已通过的题
 | 天 | 题目（路径） | 时间 | 备注 |
 |---|---|---|---|
 | D15 | 🟡 `v4/generative/vae` ⭐ | 60m | 重参数化、ELBO、解析 KL |
-| | 🔴 `torch/hard/GAN` | 60m | non-saturating loss、D 步骤 detach |
-| | breadth §6 生成模型（VAE/GAN 部分） | 30m | |
+| | 🟡 `v4/generative/vq-vae` | 60m | 最近邻量化、straight-through、codebook 项和 commitment 项各自 detach 哪边；EMA 码本 |
+| | breadth §6 生成模型（VAE/GAN 部分）+ Q5.8 VQ | 30m | GAN 只口述：non-saturating loss、最优判别器 |
 | | 🟢 `v4/generative/fid` | 30m | 矩阵平方根的数值稳定写法 |
 | D16 | 🔴 `v3/modern-architectures/ddpm` ⭐ | 90m | 前向加噪闭式解、ε 预测、反向采样均值/方差、最后一步（代码 0-based 的 t=0，论文的 t=1）不加噪 |
-| | 🟡 `v4/vision/unet` | 60m | 时间嵌入注入、skip concat、GroupNorm |
+| | 🟡 `v4/generative/diffusion-parameterizations` | 60m | ε/x₀/v/score 互换、SNR 与 min-SNR 权重、cosine schedule 的下标、zero terminal SNR |
 | | 不看资料，在纸上推一遍 DDPM 的后验 q(x_{t-1}\|x_t,x_0) 和 μ_θ | 30m | RS 面试常让你当场推 |
 | D17 | 🔴 `v3/modern-architectures/ddim-cfg` | 90m | DDIM 确定性更新；CFG 公式与 w 的约定 |
 | | 🟡 `v4/generative/flow-matching` ⭐ | 75m | 线性路径、速度目标 x1−x0、Euler 采样（SD3/Flux 也是 rectified flow，但时间方向相反：t=1 是噪声） |
 | D18 | 🔴 `v4/generative/dit-block` | 90m | adaLN-Zero：初始化时 block 为恒等映射 |
-| | 🟡 `v3/modern-architectures/knowledge-distillation` | 45m | T² 缩放、`F.kl_div` 的输入约定 |
+| | 🟡 `v4/vision/unet` | 60m | 时间嵌入注入、skip concat、GroupNorm |
 | | breadth §6 生成模型（diffusion/flow 部分） | 30m | |
 | D19 | **RS 日**：选一篇你方向的论文，2 小时内从零实现其核心（例：在 2D toy 上复现 rectified-flow 的 reflow，或 MAE 的 mask ratio 消融） | 2h | 练“读论文 → 写代码 → 设计最小实验” |
 | | 准备 research talk 骨架（问题 → insight → 方法 → 证据 → 局限 → 下一步） | 1h | breadth §9 |
@@ -175,14 +177,14 @@ status()                         # 本机已通过的题
 | 天 | 题目（路径） | 时间 | 备注 |
 |---|---|---|---|
 | D22 | 🟡 `v4/systems/memory-flops-estimation` ⭐ | 60m | 16 bytes/param、6ND、KV cache 公式（RE 必问） |
-| | 🟡 `v3/llm-inference/kv-cache` | 60m | 增量解码与全量重算等价 |
 | | 🟡 `v4/systems/int8-quantization` | 60m | per-tensor vs per-channel、零点、int32 累加 |
+| | 🟢 `v4/systems/conv-bn-fusion` | 40m | 推理时把 BN 折进 conv（按输出通道缩放）；RepVGG 三分支合并成一个 3×3 |
 | D23 | 🔴 `v4/systems/ring-allreduce` | 90m | reduce-scatter + all-gather；DDP 梯度平均等价性 |
-| | 🔴 `v3/alignment-training/gradient-checkpointing` | 60m | |
+| | 🔴 `v4/systems/tensor-parallel` | 75m | Megatron 列切 / 行切、f/g 共轭算子、每个 MLP 一次 all-reduce、行并行的 bias 只加一次 |
 | | breadth §8 系统与效率 | 30m | |
 | D24 | 🔴 `llm/Flash-Attention`（只做 Part 1：PyTorch 版） | 75m | online softmax 的重缩放（FlashAttention 的核心）；Part 2 Triton kernel 可选，CPU 上用 `TRITON_INTERPRET=1` 也能跑 |
 | | 🟡 `v3/llm-decoding/top-p-sampling` | 30m | 越过阈值的那个 token 要保留 |
-| | 🟡 `v3/modern-architectures/mixture-of-experts` 或 `sliding-window-attention` | 60m | 二选一 |
+| | 🟡 `v3/llm-inference/kv-cache` | 60m | 增量解码与全量重算等价 |
 | D25 | **Mock 日**：2 场 coding mock（各 45 分钟，随机抽题）+ 1 场 system design mock（案例 f 训练基础设施） | 3h | 录屏/录音回听，挑出说不清楚的地方 |
 | D26 | **速度训练**：⭐ 清单从空白重写，每题 ≤ 20 分钟 | 3h | 见下 |
 | D27 | breadth 全文快速过一遍 + research talk 演练 2 遍 + behavioral（STAR 故事 5 个） | 3h | |
@@ -197,9 +199,9 @@ status()                         # 本机已通过的题
 
 | 如果下一场是… | 加强 | 可以压缩 |
 |---|---|---|
-| **Applied MLE**（产品/业务） | `v4/ml-fundamentals/gradient-boosting`、`gmm-em`；system design 每周 2 次；breadth §1 指标/数据泄漏 | Swin、DiT、ring-allreduce |
-| **Research Scientist** | D19 的论文复现做两次；`v3/modern-architectures/mamba`、`v3/alignment-training/dpo`；breadth §9；research talk 打磨 | data-loading、int8-quantization |
-| **Research Engineer / ML Infra** | `v3/gpu-systems/fsdp`、`ring-attention`（CPU 上模拟多卡）、`triton-fused-softmax`、`flash-attention-triton`（CPU 上用 `TRITON_INTERPRET=1` 验证正确性；想测速度再上 Colab GPU）；`v3/llm-inference/continuous-batching`、`speculative-decoding` | GAN、decision-tree、Swin |
+| **Applied MLE**（产品/业务） | `v4/ml-fundamentals/ab-testing`（线上实验统计：z-test、bootstrap、样本量、SRM、CUPED）、`gradient-boosting`、`gmm-em`；检测方向加 `v4/vision/roi-align`；system design 每周 2 次；breadth §1 指标/数据泄漏 | DiT、ring-allreduce、tensor-parallel |
+| **Research Scientist** | D19 的论文复现做两次；`v3/modern-architectures/mamba`、`swin-transformer`、`v3/alignment-training/dpo`；breadth §9；research talk 打磨 | data-loading、int8-quantization、conv-bn-fusion |
+| **Research Engineer / ML Infra** | `v3/gpu-systems/fsdp`、`ring-attention`（CPU 上模拟多卡）、`triton-fused-softmax`、`flash-attention-triton`（CPU 上用 `TRITON_INTERPRET=1` 验证正确性；想测速度再上 Colab GPU）；`v4/systems/sequence-packing`、`v3/alignment-training/gradient-checkpointing`、`v3/llm-inference/continuous-batching`、`speculative-decoding` | decision-tree、segmentation-metrics、vq-vae |
 
 ---
 
@@ -208,7 +210,10 @@ status()                         # 本机已通过的题
 **有时间再做（有价值，但不在 4 周主线里）**
 - 经典 ML：`v4/ml-fundamentals/gmm-em`、`gradient-boosting`
 - 序列模型：`torch/easy/rnn`、`torch/medium/lstm`、`torch/hard/seq-seq`、`torch/hard/transformer`
-- 现代架构：`v3/modern-architectures/mamba`、`mixture-of-experts`、`sliding-window-attention`
+- 现代架构：`v3/modern-architectures/mamba`、`mixture-of-experts`、`sliding-window-attention`、`swin-transformer`、`2d-positional-embeddings`、`knowledge-distillation`
+- 视觉 / 生成：`v4/vision/roi-align`、`torch/hard/GAN`
+- 系统：`v4/systems/sequence-packing`、`v3/alignment-training/gradient-checkpointing`
+- 线上实验：`v4/ml-fundamentals/ab-testing`
 - LLM：`llm/Byte-Pair-Encoder`、`llm/RMS-Norm`、`llm/Sinusoidal-Positional-Embedding`、`llm/SmolLM`、`v3/llm-decoding/*`、`v3/llm-inference/speculative-decoding`、`continuous-batching`
 - 对齐：`v3/alignment-training/dpo`、`ppo-rlhf`、`grpo`
 - GPU 系统：`v3/gpu-systems/*`（CPU 可做：FSDP/ring attention 用模拟多卡，Triton 用 `TRITON_INTERPRET=1`）
@@ -216,7 +221,7 @@ status()                         # 本机已通过的题
 - 数据：`v3/data-loading/*` 其余三题
 
 **基本可以跳过（对你的目标价值低：太基础、偏 API 演示、或只是调用现成库）**
-`torch/basic/*`（除非想热身）、`torch/easy/cnn`、`torch/easy/augmentation`、`torch/easy/benchmark`、`torch/easy/cuda-amp`（读懂即可）、`torch/easy/quantize-lm`、`torch/easy/autoencoder`、`torch/medium/alexnet`、`torch/medium/3dcnn`、`torch/medium/cnn-param-init`（看 SOLN 即可）、`torch/hard/xai`（读懂 Grad-CAM 公式即可）、`llm/Create-Embeddings-out-of-an-LLM`、`v3/llm-inference/inference-engine`
+`torch/basic/*`（除非想热身）、`torch/easy/cnn`、`torch/easy/augmentation`、`torch/easy/benchmark`、`torch/easy/cuda-amp`（读懂即可）、`torch/easy/quantize-lm`、`torch/easy/autoencoder`、`torch/medium/alexnet`、`torch/medium/3dcnn`、`torch/medium/cnn-param-init`（看 SOLN 即可）、`torch/hard/xai`（读懂 Grad-CAM 公式即可；现在有评分器，想练手可以做）、`llm/Create-Embeddings-out-of-an-LLM`、`v3/llm-inference/inference-engine`
 
 ---
 

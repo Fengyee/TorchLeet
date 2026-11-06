@@ -314,7 +314,7 @@ For Applied MLE, Research Scientist and Research Engineer loops. 126 questions i
   - In a causal LM, training-time batch statistics include *future* tokens (a small leak), and generation with batch 1, one token at a time, must fall back to running statistics, which is a train/inference mismatch.
   - LN normalizes each token on its own, so training and inference compute the same function for any batch size, sequence length or decoding step, with no cross-device sync.
 - **Why norms help:** they allow higher LRs and make optimization less sensitive to init. The original "reduces internal covariate shift" explanation is disputed; Santurkar et al. 2018 argue BN mainly **smooths the loss landscape**. Say it is debated.
-- → practice: v4/dl-fundamentals/normalization-layers, llm/RMS-Norm
+- → practice: v4/dl-fundamentals/normalization-layers, llm/RMS-Norm, v4/systems/conv-bn-fusion
 
 ### Q2.8 Why do residual connections work?
 - $y = x + F(x)$ gives $\frac{\partial y}{\partial x} = I + \frac{\partial F}{\partial x}$. The identity path carries gradients across depth without attenuation (He et al. 2015, "Deep Residual Learning for Image Recognition").
@@ -475,6 +475,7 @@ For Applied MLE, Research Scientist and Research Engineer loops. 126 questions i
 - **Anchor-free:** FCOS (per-pixel distances to the four box sides, plus centerness) and CenterNet (center heatmap + size).
 - **DETR** (Carion et al. 2020): a set-prediction transformer with $N$ object queries and a Hungarian-matching loss; no anchors, no NMS (Q3.22). It converges slowly; Deformable DETR and the DINO *detector* fixed that.
 - Open-vocabulary detection (text-conditioned): OWL-ViT, Grounding DINO.
+- → practice: v4/vision/roi-align, v4/vision/iou-nms
 
 ### Q3.8 IoU and NMS: definition, algorithm, issues?
 - **IoU** $= \frac{|A \cap B|}{|A \cup B|}$. For boxes, the intersection width is $\max(0, \min(x_2, x_2') - \max(x_1, x_1'))$ (same for height), and union = area$_A$ + area$_B$ − intersection.
@@ -528,7 +529,7 @@ For Applied MLE, Research Scientist and Research Engineer loops. 126 questions i
 - **IoU (Jaccard):** $\frac{|A\cap B|}{|A\cup B|}$, related by $\mathrm{Dice} = \frac{2J}{1+J}$.
 - **mIoU:** per-class IoU $= \frac{TP}{TP + FP + FN}$, usually accumulated over the whole dataset (confusion matrix), then averaged over classes.
 - Other architectures: DeepLab (atrous convs + ASPP) and Mask2Former (mask classification with queries).
-- → practice: v4/vision/unet
+- → practice: v4/vision/unet, v4/vision/segmentation-metrics
 
 ### Q3.13 Upsampling: transposed conv vs interpolation?
 - **Bilinear interpolation:** a weighted average of the 4 neighbors; fixed and smooth. The `align_corners` flag changes the coordinate mapping, and a mismatch between training and export is a classic bug.
@@ -549,7 +550,7 @@ For Applied MLE, Research Scientist and Research Engineer loops. 126 questions i
   - DeiT (Touvron et al. 2021) closed the gap on ImageNet-1k with strong augmentation, regularization and a distillation token.
 - **Cost:** quadratic in the number of tokens, so smaller patches or higher resolution get expensive fast. For higher-resolution fine-tuning, keep the patch size and **2-D interpolate the position embeddings**.
 - High-norm "artifact" tokens appear in large ViTs; adding a few register tokens fixes them (Darcet et al. 2023, "Vision Transformers Need Registers").
-- → practice: v3/modern-architectures/vit-mae, v3/modern-architectures/2d-positional-embeddings
+- → practice: v3/modern-architectures/vit-mae, v3/modern-architectures/2d-positional-embeddings, v4/vision/vit-components
 
 ### Q3.15 What's the idea behind Swin Transformer?
 - (Liu et al. 2021) A hierarchical ViT:
@@ -581,7 +582,7 @@ For Applied MLE, Research Scientist and Research Engineer loops. 126 questions i
   - v2 added SimCLR's MLP head and augmentations; v3 targets ViTs and drops the queue in favor of large batches.
 - **No negatives:** BYOL (online predictor + EMA target), SimSiam (stop-gradient), Barlow Twins and VICReg (variance/decorrelation terms). Each needs some mechanism to avoid collapse.
 - **Evaluate** with linear probe, k-NN, fine-tuning and low-shot accuracy.
-- → practice: v3/modern-architectures/contrastive-loss-clip
+- → practice: v3/modern-architectures/contrastive-loss-clip, v4/vision/self-supervised-losses
 
 ### Q3.18 Explain MAE. Why mask 75%?
 - (He et al. 2022, "Masked Autoencoders Are Scalable Vision Learners")
@@ -607,6 +608,7 @@ For Applied MLE, Research Scientist and Research Engineer loops. 126 questions i
 - **Emergent properties:** [CLS] attention maps segment objects, and features are strong for k-NN.
 - **DINOv2** (Oquab et al. 2023): curated data (LVD-142M), DINO + iBOT masked-token loss, KoLeo regularizer. Strong general-purpose *frozen* features for depth, segmentation and retrieval, widely used as a feature extractor. DINOv3 (Siméoni et al. 2025) scales to a 7B ViT and adds Gram anchoring to stop dense features degrading over long training.
 - **vs CLIP:** DINO features are stronger for dense and geometric tasks; CLIP features carry language-aligned semantics.
+- → practice: v4/vision/self-supervised-losses
 
 ### Q3.20 How do you explain what a CNN looked at (Grad-CAM)?
 - **Grad-CAM** (Selvaraju et al. 2017):
@@ -872,7 +874,7 @@ For Applied MLE, Research Scientist and Research Engineer loops. 126 questions i
   - A GPT-style transformer then models the token sequence.
 - **Problems:** codebook collapse and low utilization. Fixes include k-means init, dead-code restarts, low-dimensional L2-normalized codes (ViT-VQGAN), and lookup-free or finite scalar quantization (LFQ in MAGVIT-v2; FSQ rounds a few dims to a few levels, so there is no learned codebook and utilization is near-full).
 - **Trade-off:** compression factor and vocab size vs reconstruction fidelity vs how easy the tokens are for the generator to model. Continuous (KL-VAE) latents suit diffusion; discrete tokens suit AR/LLM-style models.
-- → practice: v4/generative/vae, torch/easy/autoencoder
+- → practice: v4/generative/vae, torch/easy/autoencoder, v4/generative/vq-vae
 
 ### Q5.9 How do you evaluate VLMs: retrieval, VQA, captioning?
 - **Retrieval:** Recall@K = fraction of queries whose ground-truth match is in the top K, in both directions (image→text and text→image). Standard sets: COCO 5k test and Flickr30K 1k, with 5 captions per image.
@@ -1021,7 +1023,7 @@ For Applied MLE, Research Scientist and Research Engineer loops. 126 questions i
 - **Training** (Ho et al. 2020): sample $x_0$, $t \sim U\{1..T\}$ and $\epsilon$, then minimize $\|\epsilon - \epsilon_\theta(\sqrt{\bar\alpha_t}x_0 + \sqrt{1 - \bar\alpha_t}\epsilon,\ t)\|^2$. This is "$L_{simple}$": the ELBO with its per-$t$ weights dropped. Relative to the ELBO this down-weights the easy small-$t$ terms, so the network focuses on harder denoising at larger $t$; it gave better samples but worse log-likelihood than the true bound.
 - **Sampling:** start from $x_T \sim \mathcal N(0, I)$ and iterate $x_{t-1} = \mu_\theta(x_t, t) + \sigma_t z$ (no noise at the last step).
 - **Score view:** $\epsilon_\theta(x_t, t) \approx -\sqrt{1 - \bar\alpha_t}\,\nabla_{x_t}\log q(x_t)$. Diffusion is denoising score matching across noise levels (the SDE view of Song et al. 2021).
-- → practice: v3/modern-architectures/ddpm
+- → practice: v3/modern-architectures/ddpm, v4/generative/diffusion-parameterizations
 
 ### Q6.7 ε- vs x₀- vs v-prediction: what is the difference?
 - **Conversions:** let $a_t = \sqrt{\bar\alpha_t}$ and $s_t = \sqrt{1 - \bar\alpha_t}$, so $x_t = a_tx_0 + s_t\epsilon$ and $a_t^2 + s_t^2 = 1$. Any one prediction gives the others, e.g. $\hat x_0 = (x_t - s_t\hat\epsilon)/a_t$.
@@ -1029,9 +1031,10 @@ For Applied MLE, Research Scientist and Research Engineer loops. 126 questions i
 - They share the same optimum but imply **different loss weighting across noise levels** and different numerics:
   - **ε-pred:** at high noise ($a_t \to 0$), recovering $\hat x_0$ divides by about 0 and amplifies errors. It is incompatible with zero terminal SNR.
   - **x₀-pred:** since $\|\hat\epsilon - \epsilon\|^2 = \mathrm{SNR}\cdot\|\hat x_0 - x_0\|^2$, an unweighted x₀-MSE is the ε-MSE divided by SNR. It puts little weight on low-noise steps (fine detail), and recovering $\hat\epsilon = (x_t - a_t\hat x_0)/s_t$ divides by $s_t \to 0$ there. Ho et al. (2020) found it gave worse samples than ε-pred. It has come back for pixel-space transformers with large patches (Li & He 2025, "Back to Basics: Let Denoising Generative Models Denoise"), where they report ε- and v-prediction fail.
-  - **v-pred:** well-conditioned across SNRs. Introduced for progressive distillation; used with zero-terminal-SNR schedules (Lin et al. 2023, "Common Diffusion Noise Schedules and Sample Steps are Flawed"), SD 2.x-768 and Imagen Video.
+  - **v-pred:** well-conditioned across SNRs. Introduced for progressive distillation; used with zero-terminal-SNR schedules (Lin et al., WACV 2024, "Common Diffusion Noise Schedules and Sample Steps are Flawed"), SD 2.x-768 and Imagen Video.
 - Flow matching's velocity target (data − noise) is a close cousin.
 - **Unifying view:** all of these are $\mathbb E\,w(\lambda_t)\|\hat x_0 - x_0\|^2$ with different weightings over log-SNR $\lambda_t$ (Kingma et al. 2021, "Variational Diffusion Models"; Kingma & Gao 2023).
+- → practice: v4/generative/diffusion-parameterizations
 
 ### Q6.8 DDPM vs DDIM sampling?
 - **DDPM:** stochastic ancestral sampling over a Markov chain; good quality needs about all $T$ steps.
@@ -1050,6 +1053,7 @@ For Applied MLE, Research Scientist and Research Engineer loops. 126 questions i
 - **Resolution matters:** high-resolution images are more redundant, so the same noise level destroys less information. Shift the schedule toward more noise (Hoogeboom et al. 2023, "simple diffusion"; SD3's timestep shift).
 - **Zero terminal SNR:** many schedules leave signal at $t = T$, so the model never trains on pure noise but samples from it. This train/test mismatch causes, e.g., brightness bias. Fix by rescaling to zero terminal SNR and using v-prediction.
 - **EDM** (Karras et al. 2022, "Elucidating the Design Space of Diffusion-Based Generative Models"): parameterize by noise level $\sigma$ and decouple the training noise distribution (log-normal) from the sampling discretization. Adds input/output preconditioning.
+- → practice: v4/generative/diffusion-parameterizations
 
 ### Q6.10 Classifier-free guidance: how and why?
 - **Classifier guidance** (Dhariwal & Nichol 2021, "Diffusion Models Beat GANs on Image Synthesis"): add $s\,\nabla_x\log p_\phi(y \mid x_t)$ from a classifier trained on noisy images.
@@ -1323,7 +1327,7 @@ For Applied MLE, Research Scientist and Research Engineer loops. 126 questions i
   - Only point-to-point communication, so it works across nodes.
 - **Also:** sequence/context parallelism (long sequences, ring attention), expert parallelism (MoE all-to-all), ZeRO/FSDP (sharded DP).
 - **Typical 3D layout:** TP within a node × PP across nodes × DP/FSDP across replicas.
-- → practice: v3/gpu-systems/ring-attention, v3/data-loading/data-parallel-loading
+- → practice: v3/gpu-systems/ring-attention, v3/data-loading/data-parallel-loading, v4/systems/tensor-parallel
 
 ### Q8.2 How does DDP work? What does ring all-reduce cost?
 - **DDP:**
@@ -1502,6 +1506,7 @@ For Applied MLE, Research Scientist and Research Engineer loops. 126 questions i
 - **Bootstrap** over test examples for CIs on any metric (mAP, FID, win rates).
 - **Tests:** paired t-test or Wilcoxon across seeds; McNemar for two classifiers on the same test set. Correct for multiple comparisons (Holm/Bonferroni), and prefer effect sizes with CIs over bare p-values.
 - **Red flags:** best-seed reporting, checkpoint selection on test, max-over-runs.
+- → practice: v4/ml-fundamentals/ab-testing
 
 ### Q9.4 How do you make your work reproducible?
 - **Determinism:**
