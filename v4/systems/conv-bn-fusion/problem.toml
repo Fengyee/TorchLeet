@@ -1,0 +1,25 @@
+id = "conv-bn-fusion"
+title = "Inference-Time Re-parameterization: Conv–BN Fusion and RepVGG Merging"
+description = "Fold eval-mode BatchNorm into the preceding conv or linear layer (grouped/depthwise, no bias, affine=False, any eps) and merge a three-branch RepVGG block into a single 3×3 convolution."
+difficulty = "easy"
+number = 35
+set = "v4"
+category = "systems"
+tracks = ["basics"]
+
+# GENERATED from the grader spec — edit python/torchleet/problems/*.py, then run: generate.py hints
+hints = [
+  "In eval mode BatchNorm is a fixed per-channel affine map y = s * x + t, with s = gamma / sqrt(running_var + eps) and t = beta - s * running_mean. A per-OUTPUT-channel scale and shift commute with the convolution, so they can be pushed into the filters and the bias.",
+  "Dim 0 of a conv (or linear) weight is the output channel, also for grouped and depthwise convs: W' = W * s reshaped to (C_out, 1, 1, ...), b' = (b - mean) * s + beta. Use b = 0 when conv.bias is None, gamma = 1 and beta = 0 when bn.affine is False, and bn.eps INSIDE the square root. Start from copy.deepcopy(conv) and assign new nn.Parameters.",
+  "RepVGG: fuse each branch with its own BN; zero-pad the fused 1x1 kernel by one pixel on every side so it lands at index [1, 1] of a 3x3; the identity BN is the fusion of a 3x3 'identity conv' whose kernel is 1 at [o, o % (C // groups), 1, 1] and 0 elsewhere; then add the three kernels and the three biases into one conv with kernel 3, padding 1 and the branches' stride and groups.",
+]
+
+[notebooks]
+question = "conv-bn-fusion.ipynb"
+solution = "conv-bn-fusion_SOLN.ipynb"
+
+[grading]
+tier = "A"        # A = auto-graded by check(), C = not graded
+entries = ["fuse_conv_bn", "fuse_linear_bn", "repvgg_merge"]
+extras = []
+device = "cpu"
