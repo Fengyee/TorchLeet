@@ -239,6 +239,22 @@ def check_macro_f1_is_mean_of_per_class_f1(ns):
         f"macro precision and recall should both be 0.5 here, got {P:.4f}, {R:.4f}"
 
 
+def check_macro_counts_classes_that_are_only_predicted(ns):
+    # Class 2 never occurs in y_true but is predicted once: TP=0, FP=1, FN=0, so it enters
+    # the macro mean with P = R = F1 = 0 (sklearn and torchmetrics do the same).
+    y = torch.tensor([0, 0, 1, 1])
+    p = torch.tensor([0, 2, 1, 1])
+    got = tuple(_f(v) for v in ns.precision_recall_f1(y, p, 3, "macro"))
+    want = (2 / 3, 1 / 2, (2 / 3 + 1 + 0) / 3)
+    support_only = (1.0, 3 / 4, (2 / 3 + 1) / 2)
+    assert all(abs(a - b) < 1e-6 for a, b in zip(got, want)), (
+        f"y_true=[0,0,1,1], y_pred=[0,2,1,1]: macro P/R/F1 must be "
+        f"{tuple(round(v, 4) for v in want)}, got {tuple(round(v, 4) for v in got)}"
+        + (" — that averages only over classes present in y_true; class 2 is predicted, so "
+           "TP + FP + FN > 0 and it counts (with P = R = F1 = 0)"
+           if all(abs(a - b) < 1e-6 for a, b in zip(got, support_only)) else ""))
+
+
 def check_micro_f1_equals_accuracy(ns):
     g = torch.Generator().manual_seed(3)
     for C, n in ((4, 100), (10, 257)):
@@ -403,8 +419,9 @@ def check_ece_extremes(ns):
 
 CHECKS = [check_confusion_matrix_matches_loop, check_confusion_matrix_is_vectorized,
           check_precision_recall_f1_matches_oracle, check_macro_f1_is_mean_of_per_class_f1,
-          check_micro_f1_equals_accuracy, check_roc_auc_matches_pairwise_oracle,
-          check_roc_auc_special_cases, check_roc_auc_is_n_log_n,
+          check_macro_counts_classes_that_are_only_predicted, check_micro_f1_equals_accuracy,
+          check_roc_auc_matches_pairwise_oracle, check_roc_auc_special_cases,
+          check_roc_auc_is_n_log_n,
           check_average_precision_matches_threshold_oracle, check_average_precision_properties,
           check_average_precision_is_n_log_n, check_ece_matches_loop_oracle,
           check_ece_bin_edges_are_right_closed, check_ece_extremes]

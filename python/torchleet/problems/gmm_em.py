@@ -4,7 +4,8 @@ EM depends on its initialization, so nothing is compared against stored
 parameters. The checks verify what any correct EM must satisfy: the likelihood
 never decreases, a converged fit is a fixed point of the closed-form M-step,
 score() agrees with a torch.distributions.MultivariateNormal reference evaluated at
-the solver's own parameters, K=1 reduces to the sample mean/covariance, and on
+the solver's own parameters, K=1 reduces to the sample mean/covariance (already
+after a single M-step, which pins the covariance to the new means), and on
 well-separated blobs the best of a few seeds recovers the true means and weights.
 """
 import itertools
@@ -125,8 +126,8 @@ def check_log_likelihood_never_decreases(ns):
         drops = [(i, h[i - 1] - h[i]) for i in range(1, len(h)) if h[i] < h[i - 1] - 1e-6]
         assert not drops, (
             f"EM must never decrease the log-likelihood, but step {drops[0][0]} dropped it "
-            f"by {drops[0][1]:.2e} — check the M-step formulas (normalize by N_k, use the "
-            f"new means in the covariance)")
+            f"by {drops[0][1]:.2e} — check the M-step formulas (pi_k = N_k / N; means and "
+            f"covariances weighted by r_nk and divided by N_k)")
 
 
 def check_history_and_stopping_rule(ns):
@@ -166,9 +167,13 @@ def check_score_matches_multivariate_normal_reference(ns):
             f"your fitted parameters is {want:.5f}")
 
 
-def check_single_component_is_sample_mean_and_covariance(ns):
+def _correlated_3d():
     g = torch.Generator().manual_seed(2)
-    X = torch.randn(50, 3, generator=g) @ torch.tensor([[1.0, 0.0, 0.0], [0.8, 0.6, 0.0], [0.3, -0.2, 0.5]]) + 2
+    return torch.randn(50, 3, generator=g) @ torch.tensor([[1.0, 0.0, 0.0], [0.8, 0.6, 0.0], [0.3, -0.2, 0.5]]) + 2
+
+
+def check_single_component_is_sample_mean_and_covariance(ns):
+    X = _correlated_3d()
     reg = 0.05
     gm = _fit(ns, X, n_components=1, reg_covar=reg)
     w, mu, cov = _params(gm)
@@ -184,6 +189,28 @@ def check_single_component_is_sample_mean_and_covariance(ns):
     assert torch.allclose(cov[0], want_cov, atol=1e-4), (
         "K=1: the covariance must be the biased sample covariance + reg_covar * I "
         f"(reg_covar={reg} added to the diagonal)")
+
+
+def check_one_m_step_uses_the_new_means(ns):
+    """K=1: every responsibility is 1, so a single M-step lands on the sample mean and the
+    biased sample covariance + reg_covar * I, whatever the initialization. A covariance
+    built around the previous means is off by (mu_new - mu_old)(mu_new - mu_old)^T. That
+    update is still a generalized EM step (the likelihood keeps rising), so the
+    monotonicity and fixed-point checks cannot see it."""
+    X = _correlated_3d()
+    reg = 0.05
+    gm = _fit(ns, X, n_components=1, max_iter=1, tol=0.0, reg_covar=reg)
+    assert len(_history(gm)) == 2, \
+        f"max_iter=1 means one M-step: history [init, after M-step 1], got {len(_history(gm))} entries"
+    _, mu, cov = _params(gm)
+    Xd = X.double()
+    Xc = Xd - Xd.mean(0)
+    assert torch.allclose(mu[0], Xd.mean(0), atol=1e-4), \
+        "K=1 after one M-step: the mean must be the sample mean"
+    assert torch.allclose(cov[0], Xc.T @ Xc / len(X) + reg * torch.eye(3, dtype=torch.float64), atol=1e-4), (
+        "K=1 after one M-step (max_iter=1): the covariance must already be the biased sample "
+        "covariance + reg_covar * I, whatever the initialization. Compute it around the NEW "
+        "means of this M-step, not the previous ones.")
 
 
 def check_converged_fit_is_an_m_step_fixed_point(ns):
@@ -231,4 +258,5 @@ CHECKS = [check_fitted_parameter_shapes, check_responsibilities_sum_to_one_even_
           check_log_likelihood_never_decreases, check_history_and_stopping_rule,
           check_score_matches_multivariate_normal_reference,
           check_single_component_is_sample_mean_and_covariance,
+          check_one_m_step_uses_the_new_means,
           check_converged_fit_is_an_m_step_fixed_point, check_recovers_separated_blobs]

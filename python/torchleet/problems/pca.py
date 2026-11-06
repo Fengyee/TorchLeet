@@ -116,6 +116,23 @@ def check_transform_decorrelates_and_mean_maps_to_zero(ns):
         "along axis i (do not whiten or rescale in pca_transform)")
 
 
+def check_new_data_is_centered_with_the_training_mean(ns):
+    X = _data(seed=6)
+    comps, _, mean = _fit(ns, X, 3)
+    g = torch.Generator().manual_seed(7)
+    X_new = 2 * torch.randn(7, X.shape[1], generator=g) - 1.0   # its own mean is not `mean`
+    Z = torch.as_tensor(ns.pca_transform(X_new, comps, mean)).double()
+    assert tuple(Z.shape) == (7, 3), \
+        f"pca_transform must return (N, k) = (7, 3) for 7 new rows, got {tuple(Z.shape)}"
+    want = (X_new.double() - mean.double()) @ comps.double().T
+    assert torch.allclose(Z, want, atol=1e-4), (
+        "pca_transform on new data must subtract the TRAINING mean passed in as `mean`, "
+        "not the mean of the batch being transformed: Z = (X - mean) @ components.T")
+    X_back = torch.as_tensor(ns.pca_inverse_transform(Z.to(comps.dtype), comps, mean)).double()
+    assert torch.allclose(X_back, want @ comps.double() + mean.double(), atol=1e-4), \
+        "pca_inverse_transform must return Z @ components + mean"
+
+
 def check_reconstruction_error_equals_discarded_variance(ns):
     X = _data(seed=4)
     N = X.shape[0]
@@ -145,5 +162,6 @@ CHECKS = [check_components_are_orthonormal_rows, check_mean_is_the_feature_mean,
           check_explained_variance_matches_covariance_eigenvalues,
           check_components_match_eigenvectors_up_to_sign,
           check_transform_decorrelates_and_mean_maps_to_zero,
+          check_new_data_is_centered_with_the_training_mean,
           check_reconstruction_error_equals_discarded_variance,
           check_full_rank_reconstructs_exactly]

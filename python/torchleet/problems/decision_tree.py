@@ -3,8 +3,10 @@
 The load-bearing check builds the best depth-1 stump by brute force (every feature,
 every midpoint threshold, Gini counted with plain Python loops) and requires the
 solver's max_depth=1 tree to reach the same weighted Gini and to put its threshold
-at the same midpoint. The tree's internals are never inspected: leaves are recovered
-from predict_proba, and depth from the required get_depth() method plus a leaf count.
+at the same midpoint. A second dataset, on which Gini and entropy pick different
+stumps, makes sure the impurity really is Gini. The tree's internals are never
+inspected: leaves are recovered from predict_proba, and depth from the required
+get_depth() method plus a leaf count.
 """
 import torch
 
@@ -96,6 +98,25 @@ def _stump_data():
     return torch.stack([f0, f1, f2], dim=1), y
 
 
+def _gini_vs_entropy_data():
+    """3 classes, 2 continuous features. The best Gini stump here (weighted Gini 0.4934)
+    is NOT the stump that entropy / information gain picks (weighted Gini 0.5041), so a
+    tree grown with the wrong impurity is caught."""
+    g = torch.Generator().manual_seed(5)
+    N = 40
+    y = torch.randint(0, 3, (N,), generator=g)
+    X = torch.stack([0.8 * y.float() + torch.randn(N, generator=g), torch.randn(N, generator=g)], dim=1)
+    return X, y
+
+
+def _entropy(labels, C):
+    if len(labels) == 0:
+        return 0.0
+    p = torch.bincount(labels, minlength=C).double() / len(labels)
+    p = p[p > 0]
+    return float(-(p * p.log()).sum())
+
+
 def _random_label_data(N=60, seed=1, ties=True):
     """Labels independent of X. Feature 0 has heavy ties unless ties=False; feature 1
     is continuous, so every impure node has a split that strictly lowers the Gini."""
@@ -171,6 +192,32 @@ def check_depth_one_tree_is_the_best_stump(ns):
             f"a point with feature {f} = {x:.4f} should fall in the {side} leaf of the "
             f"split at {t:.4f} (the midpoint of two consecutive distinct values; "
             f"x <= threshold goes left)")
+
+
+def check_split_criterion_is_gini(ns):
+    """On this data Gini and entropy disagree about the best stump."""
+    X, y = _gini_vs_entropy_data()
+    C = 3
+    stumps = _brute_force_stumps(X, y, C)
+    best_wg, f, t, _ = stumps[0]
+    assert stumps[1][0] - best_wg > 1e-3  # spec sanity: the optimum is unique
+
+    # The stump information gain would choose, to name the mistake if that is what we see.
+    def weighted_entropy(f_, t_):
+        m = X[:, f_] <= t_
+        return (int(m.sum()) * _entropy(y[m], C) + int((~m).sum()) * _entropy(y[~m], C)) / len(y)
+    ent_f, ent_t = min(((f_, t_) for _, f_, t_, _ in stumps), key=lambda ft: weighted_entropy(*ft))
+    ent_wg = next(wg for wg, f_, t_, _ in stumps if (f_, t_) == (ent_f, ent_t))
+    assert ent_wg - best_wg > 1e-3  # spec sanity: the two criteria really disagree here
+
+    tree = _fit(ns, X, y, max_depth=1)
+    _, leaf = torch.unique(_proba(tree, X), dim=0, return_inverse=True)
+    got = _weighted_gini(leaf, y, C)
+    assert abs(got - best_wg) < 1e-6, (
+        f"your depth-1 split has weighted Gini {got:.5f}, but the best split by Gini "
+        f"(feature {f}, threshold {t:.4f}) has {best_wg:.5f}"
+        + (" — that is the split entropy / information gain picks; this tree must minimize "
+           "the weighted child GINI impurity" if abs(got - ent_wg) < 1e-6 else ""))
 
 
 def check_unlimited_depth_memorizes_training_data(ns):
@@ -269,7 +316,7 @@ def check_xor_needs_depth_two(ns):
 
 
 CHECKS = [check_fit_returns_self_and_output_shapes, check_depth_one_tree_is_the_best_stump,
-          check_unlimited_depth_memorizes_training_data, check_max_depth_is_respected,
-          check_predict_proba_is_a_distribution, check_single_class_and_pure_data,
-          check_constant_features_make_a_leaf, check_min_samples_split,
-          check_xor_needs_depth_two]
+          check_split_criterion_is_gini, check_unlimited_depth_memorizes_training_data,
+          check_max_depth_is_respected, check_predict_proba_is_a_distribution,
+          check_single_class_and_pure_data, check_constant_features_make_a_leaf,
+          check_min_samples_split, check_xor_needs_depth_two]
