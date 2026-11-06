@@ -9,6 +9,14 @@ pins the positional offset the cache implies). Both runs use the solver's own
 module, so weight init and op order can never produce a false failure — only a
 genuinely wrong cache can. Causality is checked the same way: poke the last
 token and nothing earlier may move.
+
+Two more properties of a real engine: prefilling a prompt chunk into the cache
+in ONE call and then decoding must also match the full pass (the chunk needs a
+causal mask offset by the cached length), and generating a batch of prompts of
+different lengths must give every prompt exactly the completion it gets on its
+own (greedy) — padding has to be masked out of attention, positions must count
+real tokens only, and each row's next-token logits must come from its last real
+token.
 """
 import torch
 
@@ -27,6 +35,10 @@ HINTS = [
     "top_p keeps the smallest set of tokens whose cumulative probability reaches "
     "top_p: sort descending, cumsum, zero out the tail, RENORMALISE, sample, then "
     "map the sampled index back through sorted_indices.",
+    "Prompts of different lengths: LEFT-pad them so every row's last prompt token is "
+    "in the last column, pass a (B, kv_len) padding mask so no query attends to a pad "
+    "key (pads stay in the KV cache), and give each row its own position ids that "
+    "count real tokens only.",
 ]
 
 V, D_MODEL, HEADS, D_FF, LAYERS, MAXLEN = 40, 32, 4, 64, 2, 64
@@ -187,8 +199,8 @@ def check_cached_attention_matches_full_recomputation(ns):
         "decoding token by token through the KV cache disagrees with one full "
         f"forward pass (max diff {float((full - cached).abs().max()):.2e}). In "
         "cached mode project only the new token into q/k/v, then attend over the "
-        "whole cached K/V — and do not re-apply a causal mask, the cache already "
-        "holds only the past.")
+        "whole cached K/V. A single new token needs no causal mask (the cache holds "
+        "only the past); a multi-token chunk needs one offset by the cached length.")
 
 
 # --------------------------------------------------------------------------
@@ -331,6 +343,24 @@ def check_cached_generation_matches_full_recomputation(ns):
         "token sits at index cache.seq_len, not at 0.")
 
 
+def check_prefill_then_decode_matches_full(ns):
+    """Generation prefills the prompt in ONE cached call, then decodes token by token."""
+    m = _model(ns)
+    ids = torch.randint(0, V, (B, S))
+    n = _n_blocks(ns, m) or LAYERS
+    with torch.no_grad():
+        full = m(ids)
+        caches = [ns.KVCache() for _ in range(n)]
+        parts = [m(ids[:, :5], kv_caches=caches)]
+        parts += [m(ids[:, t:t + 1], kv_caches=caches) for t in range(5, S)]
+    got = torch.cat(parts, dim=1)
+    assert torch.allclose(full, got, atol=1e-4), (
+        "prefilling the first 5 tokens through the KV caches in one call and then "
+        "decoding the rest one at a time disagrees with a single full forward pass "
+        f"(max diff {float((full - got).abs().max()):.2e}). The prefill chunk still "
+        "needs a causal mask — offset by the cached length — inside attention.")
+
+
 # --------------------------------------------------------------------------
 # top_p_sample
 # --------------------------------------------------------------------------
@@ -429,6 +459,22 @@ def check_engine_is_deterministic_when_sampling_is(ns):
         "between calls (a KV cache that is not recreated per request) does this.")
 
 
+def check_batching_does_not_change_any_completion(ns):
+    """Prompts of different lengths share a batch; each must decode exactly as alone."""
+    eng = _engine(ns)
+    with torch.no_grad():
+        batched = list(eng.generate(PROMPTS, max_new_tokens=8, temperature=1e-4, top_p=1.0))
+        alone = [eng.generate([p], max_new_tokens=8, temperature=1e-4, top_p=1.0)[0]
+                 for p in PROMPTS]
+    for p, b, a in zip(PROMPTS, batched, alone):
+        assert b == a, (
+            f"prompt {p!r} completes to {a!r} on its own but to {b!r} when batched with "
+            f"prompts of other lengths (greedy decoding, so they must be identical). "
+            f"Shorter prompts are padded: mask the pad keys out of attention (they stay "
+            f"in the KV cache), count positions over real tokens only, and take each "
+            f"row's next-token logits at its last real token.")
+
+
 CHECKS = [
     check_tokenizer_round_trips_text,
     check_tokenizer_ids_fit_the_vocabulary,
@@ -448,6 +494,7 @@ CHECKS = [
     check_transformer_is_causal,
     check_transformer_is_position_aware,
     check_cached_generation_matches_full_recomputation,
+    check_prefill_then_decode_matches_full,
     check_top_p_output_shape,
     check_low_temperature_collapses_to_the_argmax,
     check_top_p_drops_the_tail,
@@ -455,4 +502,5 @@ CHECKS = [
     check_engine_completes_every_prompt,
     check_engine_respects_max_new_tokens,
     check_engine_is_deterministic_when_sampling_is,
+    check_batching_does_not_change_any_completion,
 ]

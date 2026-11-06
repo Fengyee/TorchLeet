@@ -13,7 +13,7 @@ tracks = ["llm-path"]
 hints = [
   "Keep the k largest logits and make the rest impossible to select.",
   "Setting the discarded logits to -inf before the softmax does that cleanly.",
-  "torch.topk gives you both the values and their indices.",
+  "torch.topk gives you both the values and their indices. Clamp k to the vocabulary size first — torch.topk raises if k > vocab_size.",
 ]
 
 [notebooks]

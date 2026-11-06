@@ -13,7 +13,15 @@ any reference implementation:
   times and its empirical distribution must sit far closer to the *target*
   model's next-token distribution than to the draft's. An implementation that
   just trusts the draft, or that drops the corrected-residual resampling, fails.
+* the full guarantee: with hand-built bigram draft/target tables on a 3-token
+  vocabulary, the JOINT distribution of the first three generated tokens (K=2,
+  so a fully accepted round reaches the bonus token) must equal the target's
+  exact joint, computed by enumeration. This is what catches a bonus token drawn
+  from the wrong distribution, a residual that is p instead of max(0, p - q), or
+  a round that keeps going after its first rejection — bugs the first-token
+  check cannot see.
 """
+import itertools
 import torch
 import torch.nn.functional as F
 
@@ -265,6 +273,65 @@ def check_speculative_accepts_less_when_the_draft_disagrees(ns):
         "acceptance ratio is probably inverted (it is p/q, target over draft)")
 
 
+_P = torch.tensor([[0.6, 0.3, 0.1], [0.2, 0.2, 0.6], [0.1, 0.7, 0.2]])   # target bigram
+_Q = torch.tensor([[0.2, 0.3, 0.5], [0.5, 0.4, 0.1], [0.4, 0.2, 0.4]])   # draft bigram
+
+
+class _BigramLM(torch.nn.Module):
+    """(B, S) ids -> (B, S, 3) logits; position t's logits depend on token t only."""
+
+    def __init__(self, table):
+        super().__init__()
+        self.log_table = torch.nn.Parameter(table.log(), requires_grad=False)
+
+    def forward(self, input_ids):
+        return self.log_table[input_ids.long()]
+
+
+def check_output_distribution_equals_the_target_joint(ns):
+    """Generate 3 tokens with repeated speculative rounds (K=2) and compare the
+    empirical joint over all 27 outcomes with the target's exact joint.
+    Sampling noise keeps the TV distance under ~0.045 at n=5000 (99.99th
+    percentile); a residual of p instead of max(0, p - q) lands at ~0.2, a bonus
+    token from the draft at ~0.15, a greedy bonus at ~0.12."""
+    n_tok, k, trials = 3, 2, 5000
+    prompt = torch.tensor([[1, 0]])
+    exact = torch.zeros(3 ** n_tok)
+    for i, xs in enumerate(itertools.product(range(3), repeat=n_tok)):
+        prob, prev = 1.0, int(prompt[0, -1])
+        for x in xs:
+            prob, prev = prob * float(_P[prev, x]), x
+        exact[i] = prob
+
+    draft, target = _BigramLM(_Q).eval(), _BigramLM(_P).eval()
+    counts = torch.zeros(3 ** n_tok)
+    torch.manual_seed(0)
+    with torch.no_grad():
+        for _ in range(trials):
+            ids, out = prompt, []
+            while len(out) < n_tok:
+                toks, _ = _spec(ns, draft, target, ids, k=k, temperature=1.0)
+                assert toks, "speculative_decode emitted no tokens"
+                out += toks
+                ids = torch.cat([ids, torch.tensor([toks])], dim=1)
+            idx = 0
+            for x in out[:n_tok]:
+                idx = idx * 3 + x
+            counts[idx] += 1
+    emp = counts / trials
+    d = _tv(emp, exact)
+    worst = int((emp - exact).abs().argmax())
+    seq = list(itertools.product(range(3), repeat=n_tok))[worst]
+    assert d < 0.07, (
+        f"the first {n_tok} generated tokens are {d:.3f} away (total variation) from "
+        f"the target model's exact joint distribution over {trials} runs; sampling "
+        f"noise alone stays under ~0.045. Worst sequence {list(seq)}: "
+        f"{float(emp[worst]):.3f} sampled vs {float(exact[worst]):.3f} exact. Check "
+        f"the three pieces: accept with prob min(1, p/q); on the first rejection "
+        f"sample from normalise(max(0, p - q)) and STOP the round; if all K are "
+        f"accepted, sample the bonus token from the target's last position.")
+
+
 CHECKS = [
     check_model_output_shapes,
     check_models_are_prefix_consistent,
@@ -277,4 +344,5 @@ CHECKS = [
     check_speculative_reproduces_greedy_decoding,
     check_emitted_token_follows_the_target_distribution,
     check_speculative_accepts_less_when_the_draft_disagrees,
+    check_output_distribution_equals_the_target_joint,
 ]

@@ -14,8 +14,9 @@ EXTRAS = []
 HINTS = [
     "The cache holds (batch, heads, seq_len, d_head). What changes as you decode?",
     "update() appends the new K/V along the seq_len dimension (dim=2).",
-    "In cached mode you compute Q/K/V for the new token only, then attend over "
-    "the full cached K/V. No causal mask is needed — the cache only holds the past.",
+    "In cached mode you compute Q/K/V for the new token(s) only, then attend over "
+    "the full cached K/V. A single decode token needs no causal mask (the cache only "
+    "holds the past); a multi-token prefill chunk does, offset by the cached length.",
 ]
 
 B, D_MODEL, HEADS, SEQ = 2, 64, 4, 16

@@ -13,7 +13,8 @@ tracks = ["advanced"]
 hints = [
   "Keep each beam as (sequence, cumulative_log_prob) and start from ([start_token], 0.0) — the start token counts towards max_len.",
   "Score a candidate with the RUNNING total: score + log_softmax(logits)[token]. Comparing only the current step's log-prob turns beam search into greedy.",
-  "Pool the candidates from every beam into one list, sort by score, keep the top beam_width. At the end return the sequence of the highest-scoring beam.",
+  "Pool the candidates from every beam into one ranking (or flatten a (beams, vocab) score matrix and topk it), keep the top beam_width. A candidate ending in eos_token is finished: set it aside, never extend it.",
+  "At the end rank finished hypotheses and the beams still alive at max_len by score / num_generated ** length_penalty and return the best sequence.",
 ]
 
 [notebooks]

@@ -14,7 +14,17 @@ properties a correct scheduler must have:
     serves one request at a time cannot do.
 
 The toy model's next token depends only on how many non-EOS tokens a row holds,
-so padding choices cannot change the result.
+so padding choices cannot change the result in those checks.
+
+Two further checks pin down what makes it *batching*:
+
+  * the forward pass is batched — several requests go through the model in one
+    call (one forward per request is sequential decoding with extra steps);
+  * padding is handled correctly — with a causal toy model that uses absolute
+    positions and emits a poison token at padding positions, every request must
+    decode exactly as it would alone. Right-padding with eos_token_id and reading
+    each row's logits at its own last real position passes; reading the last
+    column (a pad) or left-padding (shifts every position) does not.
 """
 import torch
 import torch.nn as nn
@@ -32,6 +42,10 @@ HINTS = [
     "max_gen_len — check both after appending the token.",
     "step() should report whether work remains (active or waiting), so run() can "
     "simply loop `while self.step(model): pass`.",
+    "Batch the forward pass: right-pad every active sequence to the longest with "
+    "eos_token_id, call the model ONCE on (num_active, max_len), and read row i's "
+    "logits at its own last real position, length_i - 1. A causal model never looks "
+    "at pads that come after a sequence.",
 ]
 
 VOCAB, EOS, MAX_STEPS = 32, 0, 2000
@@ -239,6 +253,92 @@ def check_request_tracks_its_own_state(ns):
             "total_len() should count prompt tokens plus generated tokens"
 
 
+class _CallRecorder(nn.Module):
+    """Wraps a model and records the batch size of every forward call."""
+
+    def __init__(self, inner):
+        super().__init__()
+        self.inner, self.batch_sizes = inner, []
+
+    def forward(self, input_ids):
+        self.batch_sizes.append(input_ids.shape[0] if input_ids.dim() == 2 else 1)
+        return self.inner(input_ids)
+
+
+def check_forward_pass_is_batched(ns):
+    """Continuous batching exists to put many requests through ONE forward pass."""
+    model = _CallRecorder(_SpikeLM())
+    _run(ns, model, _requests(ns), 4)
+    assert model.batch_sizes, "the scheduler never called the model"
+    assert max(model.batch_sizes) >= 2, (
+        f"with 9 requests and max_batch_size=4 every forward call carried a single "
+        f"request (batch sizes seen: {sorted(set(model.batch_sizes))}). Running each "
+        f"active request through its own forward pass is sequential decoding — pad "
+        f"the active sequences into one (num_active, max_len) batch instead")
+
+
+POISON = VOCAB - 1
+_g2 = torch.Generator().manual_seed(11)
+_NEXT2 = torch.randint(1, VOCAB - 1, (97,), generator=_g2)    # never POISON
+_NEXT2[::9] = EOS
+
+
+class _PositionalLM(nn.Module):
+    """A causal toy LM with absolute positions: the next token after position t is a
+    hash of (t, token t, number of real tokens in 0..t). Padding positions (token ==
+    EOS == 0, which never occurs inside a live request) emit POISON.
+
+    Right padding leaves every real position untouched; reading the last column
+    instead of each row's last real token hits a pad, and left padding shifts the
+    absolute positions — both change the decoded tokens."""
+
+    def forward(self, input_ids):
+        ids = (input_ids if input_ids.dim() == 2 else input_ids.unsqueeze(0)).long()
+        b, s = ids.shape
+        pos = torch.arange(s).expand(b, s)
+        count = (ids != EOS).long().cumsum(dim=1)
+        nxt = _NEXT2[(pos * 31 + ids * 7 + count * 3) % _NEXT2.numel()]
+        nxt = torch.where(ids == EOS, torch.full_like(nxt, POISON), nxt)
+        logits = torch.full((b, s, VOCAB), -1e4)
+        logits.scatter_(2, nxt.unsqueeze(-1), 1e4)
+        return logits if input_ids.dim() == 2 else logits.squeeze(0)
+
+
+def _decode_alone(model, req):
+    """Oracle: greedy decoding of one request with no batch and no padding."""
+    ids = list(req.input_ids)
+    out = []
+    with torch.no_grad():
+        while len(out) < req.max_gen_len:
+            tok = int(model(torch.tensor([ids]))[0, -1].argmax())
+            out.append(tok)
+            ids.append(tok)
+            if tok == EOS:
+                break
+    return out
+
+
+def check_padding_does_not_change_a_requests_tokens(ns):
+    """Requests of different lengths share a batch; each must decode exactly as alone."""
+    model = _PositionalLM()
+    want = {r.request_id: _decode_alone(model, r) for r in _requests(ns)}
+    for bs in (4, 16):
+        _, completed, _ = _run(ns, model, _requests(ns), bs)
+        got = {r.request_id: list(r.generated_ids) for r in completed}
+        for rid, toks in want.items():
+            g = got.get(rid)
+            hint = ""
+            if g and POISON in g:
+                hint = (f" Token {POISON} is what this model predicts at a PADDING "
+                        f"position: read each row's logits at its own last real "
+                        f"token (length - 1), not at the last column.")
+            assert g == toks, (
+                f"max_batch_size={bs}: request {rid} decoded {g} in the batch but "
+                f"{toks} on its own — padding must not change a request's tokens. "
+                f"Right-pad with eos_token_id (a causal model never sees pads after a "
+                f"sequence; left padding shifts positions).{hint}")
+
+
 CHECKS = [
     check_request_tracks_its_own_state,
     check_every_request_completes_once,
@@ -248,4 +348,6 @@ CHECKS = [
     check_a_big_enough_batch_runs_everything_at_once,
     check_finished_slots_are_refilled,
     check_run_completes_the_queue,
+    check_forward_pass_is_batched,
+    check_padding_does_not_change_a_requests_tokens,
 ]
