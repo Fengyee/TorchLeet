@@ -1,0 +1,25 @@
+id = "detection-map"
+title = "Object Detection mAP"
+description = "Compute all-point interpolated average precision and detection mAP@IoU with greedy score-ordered matching across images."
+difficulty = "medium"
+number = 6
+set = "v4"
+category = "vision"
+tracks = ["basics"]
+
+# GENERATED from the grader spec — edit python/torchleet/problems/*.py, then run: generate.py hints
+hints = [
+  "Split it in two: (1) turn a ranked list of TP/FP flags into precision and recall arrays, (2) turn those arrays into one number. AP is the area under the precision-recall curve after replacing each precision by the best precision achievable at that recall or higher.",
+  "For AP: prepend recall 0 and append recall 1 with precision 0, take a reverse running max of precision (flip, cummax, flip), and sum (recall step) x (interpolated precision). For mAP: per class, sort ALL its predictions across images by score, keep a 'used' flag per GT, and only compare a prediction with GTs of the same class in the same image.",
+  "A prediction is a TP if, among the unmatched same-class GTs in its image, the one with the highest IoU has IoU >= threshold (mark it used); otherwise FP. Cumulative sums of the TP and FP flags give precision = TP / (TP + FP) and recall = TP / num_gt_of_class. Average AP only over classes that have at least one GT.",
+]
+
+[notebooks]
+question = "detection-map.ipynb"
+solution = "detection-map_SOLN.ipynb"
+
+[grading]
+tier = "A"        # A=auto-graded B=partial C=not auto-graded
+entries = ["average_precision", "mean_average_precision"]
+extras = []
+device = "cpu"
