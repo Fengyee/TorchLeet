@@ -10,9 +10,9 @@ tracks = ["advanced"]
 
 # GENERATED from the grader spec — edit python/torchleet/problems/*.py, then run: generate.py hints
 hints = [
-  "forward(ctx, x, slope) returns slope * x * sigmoid(x); ctx.save_for_backward whatever the backward pass needs.",
+  "forward(ctx, x, slope) returns slope * x * sigmoid(x); stash what backward needs with ctx.save_for_backward(x, slope), not as attributes on ctx.",
   "d/dx [x*sigmoid(x)] = sigmoid(x) + x*sigmoid(x)*(1 - sigmoid(x)); multiply by slope and by grad_output.",
-  "backward must return one gradient per forward input: d/dslope is grad_output * x * sigmoid(x). Keep the slope an nn.Parameter in the model so the optimizer updates it.",
+  "backward must return one gradient per forward input: d/dslope is grad_output * x * sigmoid(x), summed back down to slope's shape (slope was broadcast over x). Keep the slope an nn.Parameter in the model so the optimizer updates it.",
 ]
 
 [notebooks]

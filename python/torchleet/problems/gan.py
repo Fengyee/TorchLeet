@@ -19,6 +19,10 @@ HINTS = [
     "discriminator with Sigmoid so its output is a probability BCELoss can take.",
     "When you train the generator do NOT detach the fake batch — the gradient has "
     "to flow back through the discriminator into the generator.",
+    "Training loop: D step = BCE(D(real), 1) + BCE(D(G(z).detach()), 0); G step "
+    "= BCE(D(G(z)), 1) on a fresh, non-detached fake batch — the non-saturating "
+    "-log D(G(z)), not log(1 - D(G(z))). zero_grad the optimizer you are about "
+    "to step before its backward().",
 ]
 
 LATENT, DATA = 10, 1

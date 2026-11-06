@@ -9,9 +9,19 @@ symmetries that define each piece and that a broken implementation breaks:
 * self-attention is permutation-equivariant and must not leak across the batch —
   the two failure modes of a wrong reshape/transpose in the head split;
 * the feed-forward block is position-wise (per token) and genuinely nonlinear.
+
+Two checks do use an oracle. The 1/sqrt(head_dim) scale is pinned by loading
+weights that make every head see q = k = v = x M^T whatever the q/k/v layout
+(every head_dim-row block of every projection is the same M), so the output is
+computable by hand. Padding is pinned by invariance: a padded batch with its
+key_padding_mask must give the same outputs as each sequence run unpadded.
 """
+import math
+
 import torch
 import torch.nn as nn
+
+from torchleet.runner import Skip
 
 ENTRIES = ["PositionalEncoding", "MultiHeadSelfAttention", "FeedForward",
            "TransformerEncoderLayer", "TransformerModel"]
@@ -26,6 +36,10 @@ HINTS = [
     "PositionalEncoding builds a (max_len, d_model) table once with "
     "sin(pos/10000^(2i/d)) and cos(...), registers it as a buffer, and forward "
     "just adds the first seq_len rows to x.",
+    "Padding: key_padding_mask is (B, T) bool with True at pad positions. Fill "
+    "those *key* columns of the (B, H, T, T) scores with -inf before the "
+    "softmax (mask[:, None, None, :]). In the model, prepend one False column "
+    "for the CLS token before passing the mask to every layer.",
 ]
 
 B, T, D, H, FF = 3, 7, 16, 4, 32
@@ -196,6 +210,93 @@ def check_attention_softmax_normalizes_over_keys(ns):
         "score tensor")
 
 
+def _structured_attention(ns, embed=D, heads=H):
+    """Load weights that make the attention output computable without knowing
+    the q/k/v layout: every nn.Linear gets weight rows that repeat one
+    (head_dim x embed) block M, bias 0. A fused qkv projection, separate q/k/v
+    projections or per-head modules then all give every head q = k = v = x M^T,
+    and the heads' outputs are identical, so the concatenation order is moot."""
+    a = _attn(ns, embed, heads)
+    a.eval()
+    hd = embed // heads
+    linears = [m for m in a.modules() if isinstance(m, nn.Linear)]
+    owned = {id(p) for lin in linears for p in lin.parameters()}
+    if (not linears or any(id(p) not in owned for p in a.parameters())
+            or any(lin.in_features != embed or lin.out_features % hd
+                   for lin in linears)):
+        raise Skip("could not identify the q/k/v and output projections as "
+                   "nn.Linear(embed_dim, k * head_dim) layers")
+    g = torch.Generator().manual_seed(12)
+    M = torch.randn(hd, embed, generator=g) / math.sqrt(embed)
+    with torch.no_grad():
+        for lin in linears:
+            lin.weight.copy_(M.repeat(lin.out_features // hd, 1))
+            if lin.bias is not None:
+                lin.bias.zero_()
+    return a, M
+
+
+def _structured_oracle(x, M, heads, scale):
+    y = x @ M.T                                       # (B, T, head_dim) = q = k = v
+    w = torch.softmax(scale * (y @ y.transpose(-2, -1)), dim=-1)
+    z = (w @ y).repeat(1, 1, heads)                   # concat of identical heads
+    return z @ M.repeat(heads, 1).T                   # output projection
+
+
+def check_attention_scales_by_sqrt_head_dim(ns):
+    """softmax(Q K^T / sqrt(d_head)) V, with d_head = embed_dim / num_heads."""
+    a, M = _structured_attention(ns)
+    hd = D // H
+    torch.manual_seed(13)
+    x = torch.randn(2, T, D) * 2.0
+    with torch.no_grad():
+        got = a(x)
+    candidates = {"1/sqrt(head_dim)": 1 / math.sqrt(hd),
+                  "1/sqrt(embed_dim)": 1 / math.sqrt(D),
+                  "no scale": 1.0,
+                  "1/head_dim": 1 / hd}
+    errs = {k: float((got - _structured_oracle(x, M, H, v)).abs().max())
+            for k, v in candidates.items()}
+    if errs["1/sqrt(head_dim)"] < 1e-4:
+        return
+    best = min(errs, key=errs.get)
+    hint = (f" — your output matches the {best} version"
+            if errs[best] < 1e-4 else "")
+    raise AssertionError(
+        f"with known weights the output is {errs['1/sqrt(head_dim)']:.2e} away "
+        f"from softmax(Q K^T / sqrt(head_dim)) V{hint}. Scale the scores by "
+        "1/sqrt(head_dim), the per-head dimension, before the softmax over keys")
+
+
+def check_attention_ignores_padded_keys(ns):
+    """Padded keys get zero weight: the real positions of a padded sequence
+    match the same sequence run on its own, whatever sits in the padding."""
+    a = _attn(ns)
+    a.eval()
+    torch.manual_seed(14)
+    lengths = [T, 4, 2]
+    x = torch.randn(3, T, D)
+    pad = torch.arange(T)[None, :] >= torch.tensor(lengths)[:, None]   # True = pad
+    garbage = x.masked_fill(pad[..., None], 50.0)
+    with torch.no_grad():
+        try:
+            out = a(garbage, key_padding_mask=pad)
+        except TypeError as e:
+            raise AssertionError(
+                "MultiHeadSelfAttention.forward should accept "
+                "key_padding_mask=<(batch, seq_len) bool tensor, True at "
+                f"padding> ({e})")
+        for i, n in enumerate(lengths):
+            alone = a(x[i:i + 1, :n])[0]
+            dev = float((out[i, :n] - alone).abs().max())
+            assert dev < 1e-4, (
+                f"sequence {i} (length {n}, padded to {T}) differs from running "
+                f"it unpadded by {dev:.2e} — padded positions are still being "
+                "attended to as keys. Fill the score columns of padded keys "
+                "with -inf before the softmax: scores.masked_fill("
+                "mask[:, None, None, :], float('-inf'))")
+
+
 def check_attention_gradients_flow(ns):
     a = _attn(ns)
     a(torch.randn(2, T, D)).sum().backward()
@@ -320,6 +421,34 @@ def check_model_accepts_any_batch_and_length(ns):
             f"{(b, OUT)} — the model must handle variable-length padded input")
 
 
+def check_model_ignores_padding(ns):
+    """A padded batch plus its key_padding_mask predicts exactly what each
+    sequence predicts on its own — whatever token ids sit in the padding. The
+    CLS token (or any pooling) must not see padded positions."""
+    m = _model(ns)
+    m.eval()
+    g = torch.Generator().manual_seed(15)
+    lengths = [T, 5, 2]
+    ids = torch.randint(0, VOCAB, (3, T), generator=g)
+    pad = torch.arange(T)[None, :] >= torch.tensor(lengths)[:, None]   # True = pad
+    noisy = torch.where(pad, torch.randint(0, VOCAB, (3, T), generator=g), ids)
+    with torch.no_grad():
+        try:
+            out = m(noisy, key_padding_mask=pad)
+        except TypeError as e:
+            raise AssertionError(
+                "TransformerModel.forward should accept key_padding_mask=<(batch, "
+                f"seq_len) bool tensor, True at padding> ({e})")
+        for i, n in enumerate(lengths):
+            alone = m(ids[i:i + 1, :n])[0]
+            dev = float((out[i] - alone).abs().max())
+            assert dev < 1e-4, (
+                f"sequence {i} (length {n}, padded to {T}) predicts differently "
+                f"than when run unpadded (max diff {dev:.2e}) — the padding "
+                "leaks in. Pass the mask to every layer, and if you prepend a "
+                "CLS token, extend the mask with a False column for it")
+
+
 def check_model_gradients_reach_all_parameters(ns):
     m = _model(ns)
     out = m(torch.randint(0, VOCAB, (2, T)))
@@ -361,6 +490,8 @@ CHECKS = [
     check_attention_is_permutation_equivariant,
     check_attention_mixes_across_tokens,
     check_attention_softmax_normalizes_over_keys,
+    check_attention_scales_by_sqrt_head_dim,
+    check_attention_ignores_padded_keys,
     check_attention_gradients_flow,
     check_feedforward_is_position_wise,
     check_feedforward_is_nonlinear,
@@ -371,6 +502,7 @@ CHECKS = [
     check_encoder_layer_normalizes,
     check_model_output_shape,
     check_model_accepts_any_batch_and_length,
+    check_model_ignores_padding,
     check_model_gradients_reach_all_parameters,
     check_model_can_learn,
 ]

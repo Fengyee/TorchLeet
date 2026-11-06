@@ -13,6 +13,8 @@ hints = [
   "Encoder(input_dim, embed_dim, hidden_dim, num_layers): nn.Embedding over the source vocabulary, then nn.LSTM(embed_dim, hidden_dim, num_layers, batch_first=True).",
   "forward returns (outputs, (hidden, cell)) — the attention needs every timestep, the decoder needs the final states to start from.",
   "With batch_first=True outputs is (batch, src_len, hidden_dim) while hidden and cell stay (num_layers, batch, hidden_dim).",
+  "Decoder attention (Bahdanau): score every encoder output h_i against the decoder's top-layer state s = hidden[-1] with e_i = v^T tanh(W_s s + W_h h_i), giving (batch, src_len) scores; softmax over the source axis. Nothing in the decoder may assume a fixed source length.",
+  "context = torch.bmm(weights.unsqueeze(1), encoder_outputs) is (batch, 1, hidden_dim). Concatenate it with the embedded token, project back to embed_dim with tanh, run ONE LSTM step from (hidden, cell), and map the LSTM output to vocabulary logits.",
 ]
 
 [notebooks]
@@ -21,6 +23,6 @@ solution = "seq-to-seq-with-Attention_SOLN.ipynb"
 
 [grading]
 tier = "C"        # A=auto-graded B=partial C=not auto-graded (SEEDED, confirm)
-entries = ["Encoder"]
+entries = ["Encoder", "Decoder"]
 extras = []
 device = "cpu"

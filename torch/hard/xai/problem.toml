@@ -1,7 +1,7 @@
 id = "xai"
 legacy_ids = ["v1-31"]
-title = "Explainable AI (GradCAM/SHAP)"
-description = "Visualize which image regions drive CNN predictions using Grad-CAM heatmaps and SHAP feature attributions."
+title = "Explainable AI with Grad-CAM"
+description = "Visualize which image regions drive a CNN's prediction with Grad-CAM: hooks capture a late layer's activations and gradients, and gradient-weighted feature maps give the heatmap."
 difficulty = "hard"
 frequency = "emerging"   # very-likely | common | emerging (derived from company reports)
 number = 31

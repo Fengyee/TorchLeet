@@ -15,13 +15,14 @@ ENTRIES = ["LearnedSiLUFunction", "LinearRegressionModel"]
 DEVICE = "cpu"
 EXTRAS = []
 HINTS = [
-    "forward(ctx, x, slope) returns slope * x * sigmoid(x); ctx.save_for_backward "
-    "whatever the backward pass needs.",
+    "forward(ctx, x, slope) returns slope * x * sigmoid(x); stash what backward "
+    "needs with ctx.save_for_backward(x, slope), not as attributes on ctx.",
     "d/dx [x*sigmoid(x)] = sigmoid(x) + x*sigmoid(x)*(1 - sigmoid(x)); multiply by "
     "slope and by grad_output.",
     "backward must return one gradient per forward input: d/dslope is "
-    "grad_output * x * sigmoid(x). Keep the slope an nn.Parameter in the model so "
-    "the optimizer updates it.",
+    "grad_output * x * sigmoid(x), summed back down to slope's shape (slope was "
+    "broadcast over x). Keep the slope an nn.Parameter in the model so the "
+    "optimizer updates it.",
 ]
 
 
@@ -73,30 +74,69 @@ def check_gradient_reaches_the_input(ns):
         "no gradient reached x — backward returned None for the first input"
 
 
-def check_model_applies_the_activation(ns):
-    """The model's ctor arg is the initial slope, so its output is pinned."""
+def _find_node(root, name):
+    """Depth-first search of an autograd graph for a node of the given class name."""
+    stack, seen = [root], set()
+    while stack:
+        node = stack.pop()
+        if node is None or id(node) in seen:
+            continue
+        seen.add(id(node))
+        if type(node).__name__ == name:
+            return node
+        stack.extend(fn for fn, _ in node.next_functions)
+    return None
+
+
+def _slope_param(ns, model, out):
+    """The model parameter that feeds the custom Function's `slope` input."""
+    name = f"{ns.LearnedSiLUFunction.__name__}Backward"
+    node = _find_node(out.grad_fn, name)
+    assert node is not None, (
+        "the model's output does not go through LearnedSiLUFunction — call "
+        "LearnedSiLUFunction.apply(x, self.slope) inside forward")
+    assert len(node.next_functions) >= 2, \
+        "LearnedSiLUFunction should take two inputs: (x, slope)"
+    params = {id(p) for p in model.parameters()}
+    stack, seen = [node.next_functions[1][0]], set()
+    while stack:
+        fn = stack.pop()
+        if fn is None or id(fn) in seen:
+            continue
+        seen.add(id(fn))
+        var = getattr(fn, "variable", None)
+        if var is not None and id(var) in params:
+            return var
+        stack.extend(f for f, _ in fn.next_functions)
+    raise AssertionError(
+        "the slope passed to LearnedSiLUFunction is not an nn.Parameter of the "
+        "model — store it as self.slope = nn.Parameter(...) so it can be learned")
+
+
+def check_model_uses_the_custom_function(ns):
+    """Architecture is free (Linear before or after the activation, or none);
+    what is pinned is that the output runs through the custom Function and
+    that its slope input is the model's own parameter, initialized from the
+    constructor argument."""
     for s in (1.0, 3.0):
         torch.manual_seed(0)
         m = ns.LinearRegressionModel(s)
         x = torch.randn(10, 1)
-        got = m(x)
-        exp = s * F.silu(x)
-        assert tuple(got.shape) == tuple(x.shape), (
-            f"the activation is elementwise: expected {tuple(x.shape)} out for "
-            f"{tuple(x.shape)} in, got {tuple(got.shape)}")
-        assert torch.allclose(got, exp, atol=1e-5), (
-            f"LinearRegressionModel({s}) should start out computing "
-            f"{s} * x * sigmoid(x) (max diff {(got - exp).abs().max():.2e})")
+        out = m(x)
+        assert tuple(out.shape) == (10, 1), (
+            f"a (10, 1) batch should give (10, 1) predictions, got "
+            f"{tuple(out.shape)}")
+        slope = _slope_param(ns, m, out)
+        assert torch.allclose(slope.detach(), torch.full_like(slope, s)), (
+            f"LinearRegressionModel({s}) should start with slope {s}, got "
+            f"{slope.detach().flatten().tolist()}")
 
 
 def check_slope_is_learnable(ns):
     torch.manual_seed(0)
     m = ns.LinearRegressionModel(1.0)
-    params = [p for p in m.parameters() if p.requires_grad]
-    assert params, (
-        "the model has no trainable parameters — the slope must be an "
-        "nn.Parameter, not a plain float")
     x = torch.randn(32, 1)
+    slope = _slope_param(ns, m, m(x))
     target = 4.0 * F.silu(x)
     opt = torch.optim.SGD(m.parameters(), lr=1e-2)
     lossf = nn.MSELoss()
@@ -107,11 +147,12 @@ def check_slope_is_learnable(ns):
         loss = lossf(m(x), target)
         loss.backward()
         opt.step()
-    assert any(p.grad is not None and torch.any(p.grad != 0) for p in params), \
+    assert slope.grad is not None and torch.any(slope.grad != 0), \
         "no gradient reached the slope parameter — is it returned by backward?"
     assert loss.item() < first, (
-        f"training could not fit a target that is just a rescaled Learned-SiLU "
-        f"({first:.4f} -> {loss.item():.4f}) — the slope is not being updated")
+        f"training could not fit a target that is just a rescaled SiLU "
+        f"({first:.4f} -> {loss.item():.4f}) — the parameters are not being "
+        "updated")
 
 
 CHECKS = [
@@ -119,6 +160,6 @@ CHECKS = [
     check_forward_matches_the_formula,
     check_backward_matches_finite_differences,
     check_gradient_reaches_the_input,
-    check_model_applies_the_activation,
+    check_model_uses_the_custom_function,
     check_slope_is_learnable,
 ]

@@ -6,7 +6,10 @@ so the trajectory must match to float tolerance. The bias correction is
 pinned by a hand-derived first step: from zero state, one Adam step moves
 every coordinate by almost exactly lr * sign(grad). Skipping the
 (1 - beta**step) corrections overshoots by ~3.16x, a plain SGD update moves
-by lr * grad instead — both fail loudly.
+by lr * grad instead — both fail loudly. A second lockstep run splits three
+parameters over two param groups (catching a shared step counter or
+hyperparameters read from self.defaults), and a first step with |grad| ~ eps
+pins eps to sqrt(v_hat) + eps.
 """
 import torch
 
@@ -42,6 +45,24 @@ def _run(opt_cls, x0, target, steps, **kw):
         loss.backward()
         opt.step()
     return x.detach()
+
+
+def _two_group_run(opt_cls, groups_kw, steps=50, seed=0):
+    """A tiny 2-layer net whose 3 parameter tensors (matrix, vector, matrix)
+    are split across two param groups with different hyperparameters."""
+    g = torch.Generator().manual_seed(seed)
+    init = (torch.randn(6, 4, generator=g), torch.randn(6, generator=g),
+            torch.randn(2, 6, generator=g))
+    X, Y = torch.randn(32, 4, generator=g), torch.randn(32, 2, generator=g)
+    ps = [t.clone().requires_grad_(True) for t in init]
+    opt = opt_cls([dict(params=ps[:2], **groups_kw[0]),
+                   dict(params=ps[2:], **groups_kw[1])])
+    for _ in range(steps):
+        loss = ((torch.tanh(X @ ps[0].T + ps[1]) @ ps[2].T - Y) ** 2).mean()
+        opt.zero_grad()
+        loss.backward()
+        opt.step()
+    return [p.detach() for p in ps]
 
 
 def check_adam_matches_torch_builtin(ns):
@@ -99,8 +120,50 @@ def check_adam_reduces_loss_on_quadratic(ns):
         "correction and the lr")
 
 
+def check_adam_matches_torch_with_param_groups(ns):
+    """Several parameters of different shapes, split into two param groups
+    with their own lr/betas/eps, run for 50 steps. Catches a step counter
+    shared across parameters, hyperparameters read from self.defaults instead
+    of the group, and state that is not kept per parameter."""
+    groups = [dict(lr=0.02, betas=(0.9, 0.999), eps=1e-8),
+              dict(lr=0.005, betas=(0.8, 0.99), eps=1e-6)]
+    mine = _two_group_run(ns.MyAdam, groups)
+    ref = _two_group_run(torch.optim.Adam, groups)
+    for name, a, b in zip(("W1", "b1", "W2"), mine, ref):
+        dev = float((a - b).abs().max())
+        assert torch.allclose(a, b, atol=1e-5, rtol=1e-4), (
+            f"with two param groups and three parameters, {name} ends up "
+            f"{dev:.2e} away from torch.optim.Adam after 50 steps. Read lr, "
+            "betas and eps from each `group`, keep m, v AND the step count in "
+            "self.state[p] for every parameter separately")
+
+
+def check_adam_eps_goes_outside_the_sqrt(ns):
+    """Hand-derived: from zero state m_hat = g and v_hat = g^2, so the first
+    step is exactly -lr * g / (|g| + eps). With |g| comparable to eps this pins
+    where eps goes: inside the sqrt, or added before the bias correction (the
+    paper's 'eps-hat' form), the step comes out far too small."""
+    g = torch.Generator().manual_seed(11)
+    p0 = torch.randn(8, generator=g)
+    grad = torch.randn(8, generator=g) * 1e-6     # |g| ~ eps
+    lr, eps = 0.01, 1e-6
+    p = p0.clone().requires_grad_(True)
+    opt = ns.MyAdam([p], lr=lr, betas=(0.9, 0.999), eps=eps)
+    p.grad = grad.clone()
+    opt.step()
+    delta = p.detach() - p0
+    expected = -lr * grad / (grad.abs() + eps)
+    assert torch.allclose(delta, expected, atol=1e-7, rtol=1e-3), (
+        f"with |grad| ~ eps the first step should be -lr * g / (|g| + eps) = "
+        f"{float(expected[0]):.3e} on coordinate 0, got {float(delta[0]):.3e}. "
+        "eps is added to sqrt(v_hat) — after the square root and after the "
+        "bias correction: p -= lr * m_hat / (sqrt(v_hat) + eps)")
+
+
 CHECKS = [
     check_adam_matches_torch_builtin,
+    check_adam_matches_torch_with_param_groups,
     check_adam_first_step_is_lr_times_sign_grad,
+    check_adam_eps_goes_outside_the_sqrt,
     check_adam_reduces_loss_on_quadratic,
 ]
