@@ -256,16 +256,20 @@ def check_ddim_final_step_returns_predicted_x0(ns):
 
 
 def check_ddim_step_applies_guidance(ns):
+    """Every scale except exactly 1 needs the blend -- including s < 1, which pulls
+    towards the unconditional prediction (`if guidance_scale > 1` gets that wrong)."""
     m = _LabelDenoiser()
     x, y = torch.randn(32, DIM), _labels(32, 1)
-    got = ns.ddim_sample_step(m, x, 150, 100, ABAR, y, 3.0, NUM_CLASSES)
-    eps = torch.full_like(x, NUM_CLASSES + 3.0 * (1 - NUM_CLASSES))
-    expected = _ddim(x, 150, 100, eps)
-    assert torch.allclose(got, expected, atol=1e-4), (
-        "with guidance_scale = 3 the step must use the guided noise "
-        f"{float(eps.flatten()[0]):.1f} (= {NUM_CLASSES} + 3*(1 - {NUM_CLASSES})), "
-        f"not the raw conditional prediction; max deviation "
-        f"{float((got - expected).abs().max()):.5f}")
+    for s in (3.0, 0.5):
+        got = ns.ddim_sample_step(m, x, 150, 100, ABAR, y, s, NUM_CLASSES)
+        eps = torch.full_like(x, NUM_CLASSES + s * (1 - NUM_CLASSES))
+        expected = _ddim(x, 150, 100, eps)
+        assert torch.allclose(got, expected, atol=1e-4), (
+            f"with guidance_scale = {s:g} the step must use the guided noise "
+            f"{float(eps.flatten()[0]):.1f} (= {NUM_CLASSES} + {s:g}*(1 - {NUM_CLASSES})), "
+            f"not the raw conditional prediction -- guidance applies whenever "
+            f"guidance_scale != 1; max deviation "
+            f"{float((got - expected).abs().max()):.5f}")
 
 
 # --------------------------------------------------------------------------

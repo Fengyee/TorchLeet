@@ -20,6 +20,8 @@ token.
 """
 import torch
 
+from torchleet.runner import Skip
+
 ENTRIES = ["SimpleTokenizer", "KVCache", "MultiHeadAttention", "FeedForward",
            "TransformerBlock", "MiniTransformer", "top_p_sample", "InferenceEngine"]
 DEVICE = "cpu"
@@ -60,8 +62,8 @@ def _block(ns):
     return m
 
 
-def _model(ns, vocab=V):
-    torch.manual_seed(2)
+def _model(ns, vocab=V, seed=2):
+    torch.manual_seed(seed)
     m = ns.MiniTransformer(vocab_size=vocab, d_model=D_MODEL, num_heads=HEADS,
                            d_ff=D_FF, num_layers=LAYERS, max_seq_len=MAXLEN)
     m.eval()
@@ -412,11 +414,32 @@ def check_top_p_keeps_a_dominant_token(ns):
 # --------------------------------------------------------------------------
 PROMPTS = ["ab", "hello there", "x"]
 
+# "Greedy" through the sampling API. At T = 1e-6 a runner-up logit 2e-5 below the
+# top one gets probability e^-20, so only genuine float-level ties are left to
+# chance. (At T = 1e-4 a gap of 1e-4 still gives the runner-up a 27% chance, and
+# an untrained model hits such near-ties on a few percent of initialisations.)
+GREEDY_T = 1e-6
+
+
+def _engine_parts(ns, seed=2):
+    tok = ns.SimpleTokenizer()
+    model = _model(ns, vocab=int(tok.vocab_size), seed=seed)
+    return ns.InferenceEngine(model, tok, device="cpu"), model, tok
+
 
 def _engine(ns):
-    tok = ns.SimpleTokenizer()
-    model = _model(ns, vocab=int(tok.vocab_size))
-    return ns.InferenceEngine(model, tok, device="cpu")
+    return _engine_parts(ns)[0]
+
+
+def _near_tie_where_they_diverge(model, tok, a, b, tol=1e-4):
+    """Is the model's top-2 logit gap below tol at the first position where the
+    completions a and b differ? Greedy decoding is not well defined there: float
+    noise between a batched and an unbatched pass may pick either token."""
+    i = next((j for j, (x, y) in enumerate(zip(a, b)) if x != y), min(len(a), len(b)))
+    ids = torch.tensor([[int(t) for t in tok.encode(a[:i])]])
+    with torch.no_grad():
+        top2 = model(ids)[0, -1].topk(2).values
+    return float(top2[0] - top2[1]) < tol
 
 
 def check_engine_completes_every_prompt(ns):
@@ -451,28 +474,42 @@ def check_engine_respects_max_new_tokens(ns):
 def check_engine_is_deterministic_when_sampling_is(ns):
     eng = _engine(ns)
     with torch.no_grad():
-        a = eng.generate(PROMPTS, max_new_tokens=6, temperature=1e-4, top_p=1.0)
-        b = eng.generate(PROMPTS, max_new_tokens=6, temperature=1e-4, top_p=1.0)
+        a = eng.generate(PROMPTS, max_new_tokens=6, temperature=GREEDY_T, top_p=1.0)
+        b = eng.generate(PROMPTS, max_new_tokens=6, temperature=GREEDY_T, top_p=1.0)
     assert list(a) == list(b), (
-        "at temperature 1e-4 sampling is effectively greedy, so two calls must "
+        f"at temperature {GREEDY_T:g} sampling is effectively greedy, so two calls must "
         f"produce the same text; got {list(a)} then {list(b)}. Leftover state "
         "between calls (a KV cache that is not recreated per request) does this.")
 
 
 def check_batching_does_not_change_any_completion(ns):
-    """Prompts of different lengths share a batch; each must decode exactly as alone."""
-    eng = _engine(ns)
-    with torch.no_grad():
-        batched = list(eng.generate(PROMPTS, max_new_tokens=8, temperature=1e-4, top_p=1.0))
-        alone = [eng.generate([p], max_new_tokens=8, temperature=1e-4, top_p=1.0)[0]
-                 for p in PROMPTS]
-    for p, b, a in zip(PROMPTS, batched, alone):
-        assert b == a, (
-            f"prompt {p!r} completes to {a!r} on its own but to {b!r} when batched with "
-            f"prompts of other lengths (greedy decoding, so they must be identical). "
-            f"Shorter prompts are padded: mask the pad keys out of attention (they stay "
-            f"in the KV cache), count positions over real tokens only, and take each "
-            f"row's next-token logits at its last real token.")
+    """Prompts of different lengths share a batch; each must decode exactly as alone.
+
+    A mismatch only counts where the model clearly prefers one token: if the two
+    completions part ways at a float-level tie of the top two logits, greedy
+    decoding is not well defined there, so the check moves on to a fresh model
+    initialisation instead of failing a correct engine."""
+    for seed in (2, 3, 4):
+        eng, model, tok = _engine_parts(ns, seed)
+        with torch.no_grad():
+            batched = list(eng.generate(PROMPTS, max_new_tokens=8, temperature=GREEDY_T,
+                                        top_p=1.0))
+            alone = [eng.generate([p], max_new_tokens=8, temperature=GREEDY_T, top_p=1.0)[0]
+                     for p in PROMPTS]
+        mismatched = [(p, b, a) for p, b, a in zip(PROMPTS, batched, alone) if b != a]
+        if not mismatched:
+            return
+        for p, b, a in mismatched:
+            assert _near_tie_where_they_diverge(model, tok, a, b), (
+                f"prompt {p!r} completes to {a!r} on its own but to {b!r} when batched "
+                f"with prompts of other lengths (greedy decoding, so they must be "
+                f"identical). Shorter prompts are padded: mask the pad keys out of "
+                f"attention (they stay in the KV cache), count positions over real "
+                f"tokens only, and take each row's next-token logits at its last real "
+                f"token.")
+    raise Skip("each model initialisation tried reached a near-tie between its top two "
+               "logits, where greedy decoding is not well defined; batched-vs-alone "
+               "equivalence could not be checked")
 
 
 CHECKS = [

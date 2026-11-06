@@ -79,6 +79,10 @@ def check_scan_is_a_running_sum_when_a_is_zero(ns):
                           torch.ones(BATCH, LEN, 1), torch.ones(BATCH, LEN, 1),
                           torch.zeros(D_INNER))
     expected = torch.cumsum(x, dim=1)
+    assert not torch.isnan(y).any(), (
+        "with A=0 the scan returned NaN. If you used the exact zero-order hold "
+        "B_bar = (exp(delta*A) - 1) / A * B, its A -> 0 limit is delta * B: handle A == 0 "
+        "(torch.where), or use the simplified B_bar = delta * B the notebook asks for.")
     diff = (y - expected).abs().max().item()
     assert torch.allclose(y, expected, atol=1e-4), (
         f"with A=0, delta=B=C=1 and D=0 the recurrence is h_t = h_{{t-1}} + x_t, so "
