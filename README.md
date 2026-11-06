@@ -37,7 +37,7 @@ the original problem set it has:
 git clone https://github.com/Fengyee/TorchLeet.git && cd TorchLeet
 pip install torch            # CPU is enough for every problem (see the Triton note below)
 pip install -e python/       # the `torchleet` grader (not on PyPI — install it from the repo)
-pip install jupyter
+pip install jupyter matplotlib   # some notebooks also use torchvision / scikit-learn for demos
 jupyter lab
 ```
 

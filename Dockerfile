@@ -7,7 +7,7 @@ FROM python:3.12-slim
 # torch, which fails at import with an obscure symbol error.
 RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu \
       torch torchvision \
- && pip install --no-cache-dir jupyterlab matplotlib numpy
+ && pip install --no-cache-dir jupyterlab matplotlib numpy scikit-learn
 
 WORKDIR /torchleet
 COPY . /torchleet

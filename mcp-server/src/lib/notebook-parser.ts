@@ -64,7 +64,10 @@ export function parseNotebook(relativePath: string): ParsedNotebook | null {
     }
   }
 
-  const lastCodeCell = codeCells[codeCells.length - 1];
+  // The final cell is usually the auto-grade call (`check("<id>", ...)`); the
+  // notebook's own tests are the last code cell before it.
+  const testCells = codeCells.filter((c) => !/from torchleet import check/.test(text(c)));
+  const lastCodeCell = testCells[testCells.length - 1] ?? codeCells[codeCells.length - 1];
   const validationCode = lastCodeCell
     ? text(lastCodeCell)
     : "";
