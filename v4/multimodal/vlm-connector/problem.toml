@@ -1,0 +1,25 @@
+id = "vlm-connector"
+title = "VLM Connector: MLP Projector, Perceiver Resampler and Image-Token Merging"
+description = "Build the pieces that connect a vision encoder to an LLM: a LLaVA-style MLP projector, a Flamingo-style Perceiver Resampler, and the vectorized merge of image features into the token sequence with LM labels."
+difficulty = "medium"
+number = 22
+set = "v4"
+category = "multimodal"
+tracks = ["advanced"]
+
+# GENERATED from the grader spec — edit python/torchleet/problems/*.py, then run: generate.py hints
+hints = [
+  "The projector is applied to every image token independently. The resampler turns a variable number of image tokens into a fixed number by letting num_queries learned vectors (an nn.Parameter) be the attention queries, with the image tokens as keys and values.",
+  "Resampler layer: LayerNorm the image tokens and the latents, q = W_q(latents), k/v from the image tokens (Flamingo also appends the latents to k/v), multi-head attention, residual add, then a pre-LN MLP with a second residual. Expand the latents over the batch dim; never add positions to the image tokens.",
+  "Merge: a (B, L) boolean mask of placeholder positions tells you everything. Check its per-row count equals T (else raise ValueError), then write the flattened (B*T, D) image features into a clone of text_embeds through that mask — boolean indexing visits positions in row-major order, which is exactly 'k-th feature of sample b -> k-th placeholder of sample b'. Labels = input_ids with placeholder and attention_mask == 0 positions replaced by ignore_index (no shift).",
+]
+
+[notebooks]
+question = "vlm-connector.ipynb"
+solution = "vlm-connector_SOLN.ipynb"
+
+[grading]
+tier = "A"        # A=auto-graded B=partial C=not auto-graded
+entries = ["MLPProjector", "PerceiverResampler", "merge_image_features"]
+extras = []
+device = "cpu"
