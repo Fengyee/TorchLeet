@@ -1,7 +1,7 @@
 id = "benchmark"
 legacy_ids = ["v1-11"]
 title = "Add Benchmarking to PyTorch Code"
-description = "Profile PyTorch operations using torch.utils.benchmark, measuring GPU/CPU time and comparing implementations."
+description = "Time a training loop correctly (perf_counter, CUDA synchronization, warm-up) and micro-benchmark a forward pass with torch.utils.benchmark, comparing autograd against inference_mode."
 difficulty = "easy"
 frequency = "emerging"   # very-likely | common | emerging (derived from company reports)
 number = 11
@@ -10,9 +10,9 @@ tracks = ["basics"]
 
 # GENERATED from the grader spec — edit python/torchleet/problems/*.py, then run: generate.py hints
 hints = [
-  "Flatten the 28x28 image before the first Linear layer.",
-  "Use time.perf_counter() around the epoch, not time.time().",
-  "On CUDA you must torch.cuda.synchronize() before stopping the clock.",
+  "Flatten the 28x28 image (x.flatten(1)) and stack at least two hidden nn.Linear layers with a ReLU after each, ending in a Linear to 10 logits.",
+  "Time with time.perf_counter(), not time.time(), and expect the first epoch to be slower: it pays one-off warm-up costs.",
+  "CUDA kernels launch asynchronously: call torch.cuda.synchronize() before starting and before stopping the clock. torch.utils.benchmark.Timer does the warm-up, synchronization and repetition for you (but defaults to num_threads=1).",
 ]
 
 [notebooks]

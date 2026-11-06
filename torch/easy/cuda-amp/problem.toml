@@ -1,7 +1,7 @@
 id = "cuda-amp"
 legacy_ids = ["v1-14"]
-title = "Mixed Precision Training with torch.cuda.amp"
-description = "Use automatic mixed precision to train models faster with float16, managing loss scaling and gradient overflow."
+title = "Mixed Precision Training with torch.amp"
+description = "Use automatic mixed precision (torch.autocast + torch.amp.GradScaler) to train in float16/bfloat16, with loss scaling against float16 gradient underflow and skipped steps on overflow."
 difficulty = "easy"
 frequency = "emerging"   # very-likely | common | emerging (derived from company reports)
 number = 14

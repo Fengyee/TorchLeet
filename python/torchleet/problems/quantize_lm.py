@@ -104,7 +104,10 @@ def check_dynamic_quantization_shrinks_the_model(ns):
             raise Skip("no quantized backend (fbgemm/qnnpack) built into this torch")
         torch.backends.quantized.engine = engines[0]
 
-    from torch.ao.quantization import quantize_dynamic
+    try:
+        from torch.ao.quantization import quantize_dynamic
+    except ImportError:  # deprecated in favour of torchao; gone in some future release
+        raise Skip("torch.ao.quantization.quantize_dynamic is not available in this torch")
 
     m = _model(ns)
     m.eval()

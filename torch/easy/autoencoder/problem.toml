@@ -10,9 +10,9 @@ tracks = ["basics"]
 
 # GENERATED from the grader spec — edit python/torchleet/problems/*.py, then run: generate.py hints
 hints = [
-  "The decoder must undo the encoder's downsampling, so the output matches the input shape.",
-  "ConvTranspose2d with stride=2 doubles the spatial size; output_padding fixes off-by-ones.",
-  "Train it to reconstruct its own input with MSELoss.",
+  "Without a bottleneck an autoencoder can learn the identity and reconstruct anomalies as well as normal digits — compress each 784-pixel image to a code much smaller than that (e.g. conv/pool down to 7x7, then a Linear to 32 numbers).",
+  "Mirror the encoder: Linear back to the 7x7 feature map, then ConvTranspose2d(kernel_size=3, stride=2, padding=1, output_padding=1) twice (7 -> 14 -> 28) and a Sigmoid, because the pixels are in [0, 1].",
+  "Score every image separately — average the squared error over C, H and W but not over the batch, so 64 images give 64 scores. Set the threshold to a high percentile (e.g. the 95th) of the scores on held-out normal images, never on test labels.",
 ]
 
 [notebooks]
@@ -21,6 +21,6 @@ solution = "autoencoder_SOLN.ipynb"
 
 [grading]
 tier = "C"        # A=auto-graded B=partial C=not auto-graded (SEEDED, confirm)
-entries = ["Autoencoder"]
-extras = ["matplotlib", "numpy", "torchvision"]
+entries = ["Autoencoder", "anomaly_scores"]
+extras = ["matplotlib", "torchvision"]
 device = "cpu"

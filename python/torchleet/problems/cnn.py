@@ -8,6 +8,8 @@ which is pure torch. Requiring it would skip a check that can actually run.
 There is no single correct architecture here, so nothing compares against a
 reference: the checks verify the contract (shape), that the network is trainable
 (gradients reach every parameter, loss goes down), and that it is batch-agnostic.
+The shape checks run in eval mode: a model with BatchNorm1d legitimately refuses a
+batch of one while training.
 """
 import torch
 import torch.nn as nn
@@ -31,8 +33,14 @@ def _model(ns):
     return ns.CNNModel()
 
 
-def check_output_shape(ns):
+def _eval_model(ns):
     m = _model(ns)
+    m.eval()
+    return m
+
+
+def check_output_shape(ns):
+    m = _eval_model(ns)
     out = m(torch.randn(4, *SHAPE))
     assert out.ndim == 2, f"expected a 2D (batch, classes) output, got {out.ndim}D"
     assert out.shape[0] == 4, f"batch dim should be 4, got {out.shape[0]}"
@@ -41,7 +49,7 @@ def check_output_shape(ns):
 
 
 def check_batch_agnostic(ns):
-    m = _model(ns)
+    m = _eval_model(ns)
     for b in (1, 3, 8):
         out = m(torch.randn(b, *SHAPE))
         assert out.shape == (b, CLASSES), \
