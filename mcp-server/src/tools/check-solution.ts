@@ -1,53 +1,54 @@
 import { z } from "zod";
-import { getQuestionById } from "../data/questions.js";
+import { getQuestionById, checkUsage, GRADER_SETUP } from "../data/questions.js";
 import { parseNotebook } from "../lib/notebook-parser.js";
+import { notFound } from "./get-question.js";
 
 export const checkSolutionSchema = {
-  id: z.string().describe("Question ID"),
+  id: z.string().describe("Problem id (e.g. 'kv-cache') or legacy id (e.g. 'v3-12')"),
   code: z.string().describe("The user's PyTorch solution code"),
 };
 
 export async function checkSolution(params: { id: string; code: string }) {
   const q = getQuestionById(params.id);
-  if (!q) {
-    return {
-      content: [{ type: "text" as const, text: `Question "${params.id}" not found.` }],
-    };
-  }
+  if (!q) return notFound(params.id);
 
   const parts: string[] = [
     `## Solution Review Checklist: ${q.title}\n`,
     `**Difficulty**: ${q.difficulty}\n`,
+    "This checklist executes nothing.",
   ];
+  if (q.graded) {
+    parts.push(`To actually grade it, run \`${checkUsage(q)}\` (one-time setup, from the repo root: \`${GRADER_SETUP}\`).\n`);
+  } else {
+    parts.push("This problem is not auto-graded: run the notebook's own checks.\n");
+  }
 
-  if (q.hasNotebook && q.questionPath) {
-    const nb = parseNotebook(q.questionPath);
-    if (nb) {
-      if (nb.functionSignatures.length > 0) {
-        parts.push("### Expected Function Signatures\n");
-        parts.push("Verify your implementation matches these signatures:\n");
-        for (const sig of nb.functionSignatures) {
-          parts.push(`- \`${sig}\``);
-        }
-        parts.push("");
+  const nb = parseNotebook(q.questionPath);
+  if (nb) {
+    if (nb.functionSignatures.length > 0) {
+      parts.push("### Expected Function Signatures\n");
+      parts.push("Verify your implementation matches these signatures:\n");
+      for (const sig of nb.functionSignatures) {
+        parts.push(`- \`${sig}\``);
       }
+      parts.push("");
+    }
 
-      if (nb.todoComments.length > 0) {
-        parts.push("### Required Steps\n");
-        parts.push("Make sure you've addressed each TODO:\n");
-        for (const todo of nb.todoComments) {
-          parts.push(`- [ ] ${todo}`);
-        }
-        parts.push("");
+    if (nb.todoComments.length > 0) {
+      parts.push("### Required Steps\n");
+      parts.push("Make sure you've addressed each TODO:\n");
+      for (const todo of nb.todoComments) {
+        parts.push(`- [ ] ${todo}`);
       }
+      parts.push("");
+    }
 
-      if (nb.validationCode) {
-        parts.push("### Validation Tests\n");
-        parts.push("Run these assertions from the notebook to verify correctness:\n");
-        parts.push("```python");
-        parts.push(nb.validationCode.slice(0, 2000));
-        parts.push("```\n");
-      }
+    if (nb.validationCode) {
+      parts.push("### Validation Tests\n");
+      parts.push("Run these assertions from the notebook to verify correctness:\n");
+      parts.push("```python");
+      parts.push(nb.validationCode.slice(0, 2000));
+      parts.push("```\n");
     }
   }
 

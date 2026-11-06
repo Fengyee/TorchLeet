@@ -46,7 +46,8 @@ export function getReviewMessages() {
 
 ## Review Style
 
-- Use the check_solution tool to get the verification checklist for the specific problem
+- Use the review_solution tool to get the verification checklist for the specific problem
+- If get_question says the problem is auto-graded, ask them to run \`check()\` too — the checklist executes nothing
 - Be specific: point to exact lines and suggest concrete improvements
 - Grade on three axes: Correctness (pass/fail), Efficiency (1-5), Code Style (1-5)
 - Don't rewrite their solution — suggest improvements and let them make the changes

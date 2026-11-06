@@ -12,7 +12,10 @@ Subcommands:
   sources   write SOURCES.md from the [[companies]] tables
   website   write website/src/data/problems.generated.ts
   json      write problems.json (+ space/problems.json)
-  all       hints, tiers, badges, readme, sources, website, json — run after adding a problem
+  mcp       write the MCP server's catalogue, hints and study-plan path
+            (mcp-server/src/data/*.generated.ts); rebuild the server afterwards
+  all       hints, tiers, badges, readme, sources, website, json, mcp, then check —
+            run after adding a problem
   seed      historical one-time bootstrap (reads /tmp/catalog.json); not for normal use
 
 Reads TOML with stdlib tomllib. Writes it with a small emitter here, because the
@@ -667,6 +670,139 @@ def cmd_json() -> int:
     return 0
 
 
+# Sets are the directory trees; a manifest's own `set` wins where it has one (the
+# data-loading problems predate the field, so they get it from the tree).
+TREE_SET = {"torch": "v1", "llm": "v2", "v3": "v3", "v4": "v4"}
+MCP_DATA = ROOT / "mcp-server" / "src" / "data"
+STUDY_PLAN = ROOT / "study" / "README.md"
+STUDY_PLAN_ID = "cv-mm-gen-4wk"
+
+
+def _study_plan(dir_ids: dict[str, str]) -> dict | None:
+    """The owner's plan (study/README.md) as problem ids in plan order.
+
+    Read from the week tables: a `## N. 第 k 周：<title>` heading opens a week, a
+    row whose first cell is `D<n>` opens a day, and every backticked repo path in
+    the row's item cell that is a problem directory becomes an item. A bare name
+    after such a path in the same cell (`a/b/x` 或 `y`) is that path's sibling.
+    Anything else in the plan (breadth reading, mocks) is not a problem and is
+    skipped."""
+    if not STUDY_PLAN.exists():
+        return None
+    text = STUDY_PLAN.read_text(encoding="utf-8")
+    h1 = re.search(r"^#\s+(.+)$", text, re.M)
+    weeks: list[dict] = []
+    week, day = None, ""
+    for line in text.splitlines():
+        h = re.match(r"^##\s+(?:\d+\.\s*)?第\s*(\d+)\s*周\s*[：:]\s*(.*)$", line)
+        if h:
+            week = {"week": int(h.group(1)), "title": h.group(2).strip(), "items": []}
+            weeks.append(week)
+            day = ""
+            continue
+        if line.startswith("## "):
+            week = None
+            continue
+        if week is None or not line.startswith("|"):
+            continue
+        # Split on unescaped pipes: cells may contain a literal `\|`.
+        cells = [c.strip() for c in re.split(r"(?<!\\)\|", line.strip().strip("|"))]
+        if re.fullmatch(r"D\d+", cells[0]):
+            day = cells[0]
+        if len(cells) < 2:
+            continue
+        prev = None
+        for tok in re.findall(r"`([^`]+)`", cells[1]):
+            path = tok if "/" in tok or prev is None else f"{prev.rsplit('/', 1)[0]}/{tok}"
+            if path in dir_ids:
+                week["items"].append({
+                    "id": dir_ids[path], "day": day,
+                    "time": cells[2] if len(cells) > 2 else "",
+                    "star": "⭐" in cells[1],
+                    "note": cells[3] if len(cells) > 3 else "",
+                })
+                prev = path
+            elif tok.split("/")[0] in TREE_SET and "/" in tok:
+                print(f"  warning: study plan names `{tok}`, which is not a problem directory")
+    weeks = [w for w in weeks if w["items"]]
+    if not weeks:
+        print(f"  warning: no problems found in {STUDY_PLAN.relative_to(ROOT)}; "
+              "the MCP server will have no study-plan path")
+        return None
+    return {"id": STUDY_PLAN_ID,
+            "title": h1.group(1).strip() if h1 else "Study plan",
+            "source": STUDY_PLAN.relative_to(ROOT).as_posix(),
+            "weeks": weeks}
+
+
+def cmd_mcp() -> int:
+    """Write the MCP server's data from the manifests: the catalogue (plus the
+    study-plan path) and the authored hints. Hints go in their own module so the
+    catalogue resource the server exposes never carries every hint level at once.
+    The server compiles these in, so run `npm run build` in mcp-server/ after."""
+    order = {k: i for i, k in enumerate(SECTIONS)}
+    rows = sorted(load_all(), key=lambda t: (
+        order.get(section_of(t[1]), len(order)), section_of(t[1]),
+        DIFF_RANK.get(t[0]["difficulty"], 9), t[0].get("number") or 0, t[0]["title"]))
+
+    items, hints, dir_ids = [], {}, {}
+    for m, d in rows:
+        rel = d.relative_to(ROOT).as_posix()
+        sec = section_of(d)
+        s = m["notebooks"].get("solution")
+        dir_ids[rel] = m["id"]
+        items.append({
+            "id": m["id"],
+            "legacyIds": m.get("legacy_ids", []),
+            "title": m["title"],
+            "description": m.get("description", ""),
+            "difficulty": m["difficulty"],
+            "set": m.get("set") or TREE_SET.get(rel.split("/")[0], rel.split("/")[0]),
+            "number": m.get("number"),
+            "category": m.get("category", ""),
+            "section": sec,
+            "sectionTitle": SECTIONS.get(sec, sec),
+            "tracks": m.get("tracks", []),
+            "companies": [{"name": c["name"], "confidence": c.get("confidence", "inferred")}
+                          for c in m.get("companies", [])],
+            "questionPath": f"{rel}/{m['notebooks']['question']}",
+            "solutionPath": f"{rel}/{s}" if s else None,
+            "colabUrl": colab_url(m, d),
+            "solutionColabUrl": f"{COLAB}/{rel}/{s}" if s else None,
+            "graded": _spec_entries(m.get("id")) is not None,
+            "entries": m.get("grading", {}).get("entries", []),
+            "llmPath": ({"order": m["llm_path"]["order"], "stage": m["llm_path"].get("stage", "")}
+                        if "order" in (m.get("llm_path") or {}) else None),
+        })
+        if m.get("hints"):
+            hints[m["id"]] = m["hints"]
+
+    plan = _study_plan(dir_ids)
+    head = ("// GENERATED by scripts/generate.py mcp — do not edit.\n"
+            "// Source of truth: the per-problem problem.toml manifests"
+            " (and study/README.md for the study-plan path).\n"
+            "// Regenerate with `python3 scripts/generate.py mcp`, then `npm run build`.\n\n")
+    body = ",\n".join("  " + json.dumps(i, ensure_ascii=False) for i in items)
+    (MCP_DATA / "problems.generated.ts").write_text(
+        head + 'import type { Question, StudyPlan } from "./types.js";\n\n'
+        f"export const problems: Question[] = [\n{body},\n];\n\n"
+        "export const studyPlan: StudyPlan | null = "
+        + (json.dumps(plan, ensure_ascii=False, indent=1) if plan else "null") + ";\n",
+        encoding="utf-8")
+    (MCP_DATA / "hints.generated.ts").write_text(
+        head + "// Hints by problem id (slug). Callers resolve legacy ids to the slug first.\n"
+        "export const authoredHints: Record<string, string[]> = "
+        + json.dumps(hints, ensure_ascii=False, indent=1) + ";\n\n"
+        "export function getAuthoredHints(id: string): string[] | undefined {\n"
+        "  return Object.prototype.hasOwnProperty.call(authoredHints, id) ? authoredHints[id] : undefined;\n"
+        "}\n", encoding="utf-8")
+    n_plan = sum(len(w["items"]) for w in plan["weeks"]) if plan else 0
+    print(f"mcp data written: {len(items)} problems, {len(hints)} with hints, "
+          f"study plan {n_plan} items -> {MCP_DATA.relative_to(ROOT)}/ "
+          "(rebuild: cd mcp-server && npm run build)")
+    return 0
+
+
 def cmd_coverage() -> int:
     """The published grading-coverage number. Derived, never typed by hand."""
     from collections import Counter
@@ -718,9 +854,11 @@ if __name__ == "__main__":
         sys.exit(cmd_hints())
     if cmd == "tiers":
         sys.exit(cmd_tiers())
+    if cmd == "mcp":
+        sys.exit(cmd_mcp())
     if cmd == "all":
         for step in (cmd_hints, cmd_tiers, cmd_badges, cmd_readme, cmd_sources,
-                     cmd_website, cmd_json):
+                     cmd_website, cmd_json, cmd_mcp):
             if step():
                 sys.exit(1)
         sys.exit(cmd_check())

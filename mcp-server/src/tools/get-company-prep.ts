@@ -2,66 +2,51 @@ import { z } from "zod";
 import {
   getQuestionsByCompany,
   getAllCompanies,
-  getColabUrl,
-  type Question,
+  groupBySection,
+  byDifficulty,
+  COMPANY_TAG_NOTE,
+  driftNotice,
 } from "../data/questions.js";
 
 export const getCompanyPrepSchema = {
-  company: z.string().describe("Company name (e.g. 'Anthropic', 'Meta', 'Google')"),
-};
-
-const DIFFICULTY_ORDER: Record<string, number> = {
-  basic: 0,
-  easy: 1,
-  medium: 2,
-  hard: 3,
-  expert: 4,
+  company: z.string().describe("Company tag (e.g. 'Anthropic', 'Meta', 'Google'). Tags are inferred, not interview reports."),
 };
 
 export async function getCompanyPrep(params: { company: string }) {
   const qs = getQuestionsByCompany(params.company);
 
   if (qs.length === 0) {
-    const companies = getAllCompanies();
+    const companies = getAllCompanies().map((c) => `${c.name} (${c.count})`);
     return {
       content: [
         {
           type: "text" as const,
-          text: `No questions found for "${params.company}".\n\nAvailable companies: ${companies.join(", ")}`,
+          text: `${driftNotice()}No problems are tagged "${params.company}".\n\nCompany tags (problem count): ${companies.join(", ")}\n\n${COMPANY_TAG_NOTE}`,
         },
       ],
     };
   }
 
-  const sorted = [...qs].sort(
-    (a, b) => (DIFFICULTY_ORDER[a.difficulty] ?? 5) - (DIFFICULTY_ORDER[b.difficulty] ?? 5),
-  );
-
-  const byCategory = new Map<string, Question[]>();
-  for (const q of sorted) {
-    const cat = q.category || q.set;
-    if (!byCategory.has(cat)) byCategory.set(cat, []);
-    byCategory.get(cat)!.push(q);
-  }
+  const name = qs[0].companies.find((c) => c.name.toLowerCase() === params.company.trim().toLowerCase())!.name;
+  const confidences = new Set(qs.map((q) => q.companies.find((c) => c.name === name)!.confidence));
+  const sorted = [...qs].sort(byDifficulty);
 
   const parts: string[] = [
-    `# ${params.company} Interview Prep\n`,
-    `${qs.length} TorchLeet questions tagged for ${params.company}.\n`,
-    `Recommended approach: start with Easy/Medium, then work up to Hard/Expert.\n`,
+    `# Problems tagged ${name}\n`,
+    `${qs.length} problem(s) carry the ${name} tag (${Array.from(confidences).join(" / ")}).`,
+    `\n> ${COMPANY_TAG_NOTE} Use this as a topic list for the kind of role, not as a list of questions ${name} asks.\n`,
+    "Suggested order: easy/medium first, then hard/expert.\n",
   ];
 
-  parts.push("## Study Plan (by difficulty)\n");
+  parts.push("## By difficulty\n");
   for (const q of sorted) {
-    const colab = q.hasNotebook && q.questionPath ? ` | [Open in Colab](${getColabUrl(q.questionPath)})` : "";
-    parts.push(`- **${q.id}** ${q.title} — ${q.difficulty}${colab}`);
+    parts.push(`- **${q.id}** ${q.title} — ${q.difficulty}${q.graded ? " (auto-graded)" : ""}`);
   }
 
-  parts.push("\n## By Category\n");
-  for (const [cat, catQs] of byCategory) {
-    parts.push(`### ${cat}\n`);
-    for (const q of catQs) {
-      parts.push(`- ${q.id} ${q.title} (${q.difficulty})`);
-    }
+  parts.push("\n## By topic\n");
+  for (const group of groupBySection(qs)) {
+    parts.push(`### ${group.title} (\`${group.section}/\`)\n`);
+    for (const q of group.questions) parts.push(`- ${q.id} ${q.title} (${q.difficulty})`);
     parts.push("");
   }
 

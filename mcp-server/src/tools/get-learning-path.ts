@@ -1,63 +1,76 @@
 import { z } from "zod";
 import {
   getLLMPathStages,
-  getBasicsQuestions,
-  getAdvancedGroupedByTopic,
+  getQuestionsByTrack,
+  getQuestionById,
+  groupBySection,
+  studyPlan,
+  driftNotice,
 } from "../data/questions.js";
+
+const TRACKS = ["llm-path", "basics", "advanced", ...(studyPlan ? [studyPlan.id] : [])] as [string, ...string[]];
 
 export const getLearningPathSchema = {
   track: z
-    .enum(["llm-path", "basics", "advanced"])
+    .enum(TRACKS)
     .default("llm-path")
-    .describe("Which learning track to show"),
+    .describe(
+      "Which path: llm-path (build an LLM from scratch, in order), basics, advanced" +
+        (studyPlan ? `, or ${studyPlan.id} (the owner's 4-week CV / multimodal / generative study plan from ${studyPlan.source})` : ""),
+    ),
 };
 
 export async function getLearningPath(params: { track: string }) {
-  if (params.track === "llm-path") {
-    const stages = getLLMPathStages();
+  const track = params.track ?? "llm-path";
+  const notice = driftNotice();
+
+  if (studyPlan && track === studyPlan.id) {
+    const n = studyPlan.weeks.reduce((acc, w) => acc + w.items.length, 0);
+    const parts = [
+      `# ${studyPlan.title}\n`,
+      `From \`${studyPlan.source}\` — ${n} problems over ${studyPlan.weeks.length} weeks, in plan order. ` +
+        "Times include checking the answer and taking notes. ⭐ = drill until you can write it from blank in ~20 minutes (week-4 speed round). " +
+        "The plan also schedules breadth reading, system design and mocks; see the source file for those.\n",
+    ];
+    for (const w of studyPlan.weeks) {
+      parts.push(`## Week ${w.week}: ${w.title}\n`);
+      for (const item of w.items) {
+        const q = getQuestionById(item.id);
+        const label = q ? `${q.title} (${q.difficulty}${q.graded ? ", auto-graded" : ""})` : "(not in this build)";
+        const meta = [item.day, item.time].filter(Boolean).join(" · ");
+        parts.push(`- ${meta ? `${meta} — ` : ""}**${item.id}** ${label}${item.star ? " ⭐" : ""}${item.note ? ` — ${item.note}` : ""}`);
+      }
+      parts.push("");
+    }
+    return { content: [{ type: "text" as const, text: notice + parts.join("\n") }] };
+  }
+
+  if (track === "llm-path") {
     const parts = [
       "# LLM Learning Path — Build a Language Model from Scratch\n",
       "Work through these in order. Each builds on the previous.\n",
     ];
-
-    for (const stage of stages) {
+    for (const stage of getLLMPathStages()) {
       parts.push(`## ${stage.title}\n`);
       for (const q of stage.questions) {
-        const check = q.hasNotebook ? "[ ]" : "[no notebook]";
-        parts.push(`- ${check} **${q.id}** ${q.title} (${q.difficulty})`);
+        const step = q.llmPath ? `${q.llmPath.order}. ` : "";
+        parts.push(`- ${step}**${q.id}** ${q.title} (${q.difficulty})`);
       }
       parts.push("");
     }
-
-    return { content: [{ type: "text" as const, text: parts.join("\n") }] };
+    return { content: [{ type: "text" as const, text: notice + parts.join("\n") }] };
   }
 
-  if (params.track === "basics") {
-    const qs = getBasicsQuestions();
-    const parts = [
-      `# Basics Track — ${qs.length} questions\n`,
-      "Core PyTorch and classical ML fundamentals.\n",
-    ];
-    for (const q of qs) {
-      parts.push(`- **${q.id}** ${q.title} (${q.difficulty})`);
-    }
-    return { content: [{ type: "text" as const, text: parts.join("\n") }] };
-  }
-
-  // advanced
-  const groups = getAdvancedGroupedByTopic();
+  const qs = getQuestionsByTrack(track);
   const parts = [
-    "# Advanced Track — Grouped by Topic\n",
-    "Hard and expert-level problems for deep practice.\n",
+    track === "basics"
+      ? `# Basics Track — ${qs.length} problems\n\nCore PyTorch, deep-learning and classical-ML fundamentals, grouped by directory, easiest first.\n`
+      : `# Advanced Track — ${qs.length} problems\n\nArchitectures, generative models, alignment, inference and systems, grouped by directory, easiest first.\n`,
   ];
-  for (const group of groups) {
-    parts.push(`## ${group.title}\n`);
-    for (const q of group.questions) {
-      const companies = q.companies.length > 0 ? ` [${q.companies.join(", ")}]` : "";
-      parts.push(`- **${q.id}** ${q.title} (${q.difficulty})${companies}`);
-    }
+  for (const group of groupBySection(qs)) {
+    parts.push(`## ${group.title} (\`${group.section}/\`)\n`);
+    for (const q of group.questions) parts.push(`- **${q.id}** ${q.title} (${q.difficulty})`);
     parts.push("");
   }
-
-  return { content: [{ type: "text" as const, text: parts.join("\n") }] };
+  return { content: [{ type: "text" as const, text: notice + parts.join("\n") }] };
 }

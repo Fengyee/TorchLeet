@@ -1,51 +1,78 @@
 import { z } from "zod";
-import { getQuestionById, getColabUrl } from "../data/questions.js";
+import {
+  getQuestionById,
+  getStudyPlanSlots,
+  studyPlan,
+  formatCompanies,
+  COMPANY_TAG_NOTE,
+  localPath,
+  checkUsage,
+  GRADER_SETUP,
+  driftNotice,
+} from "../data/questions.js";
+import { getAuthoredHints } from "../data/hints.generated.js";
 
 export const getQuestionSchema = {
-  id: z.string().describe("Question ID (e.g. 'v3-1', 'v2-6', 'v1-26')"),
+  id: z
+    .string()
+    .describe("Problem id (e.g. 'kv-cache', 'iou-nms'), a legacy id (e.g. 'v3-12') or its directory (e.g. 'v4/vision/iou-nms')"),
 };
+
+export function notFound(id: string) {
+  return {
+    content: [
+      {
+        type: "text" as const,
+        text: `${driftNotice()}Question "${id}" not found. Use list_questions to see available ids.`,
+      },
+    ],
+  };
+}
 
 export async function getQuestion(params: { id: string }) {
   const q = getQuestionById(params.id);
-  if (!q) {
-    return {
-      content: [{ type: "text" as const, text: `Question "${params.id}" not found. Use list_questions to see available IDs.` }],
-    };
-  }
+  if (!q) return notFound(params.id);
 
   const parts: string[] = [
     `# ${q.title}`,
-    `**ID**: ${q.id}`,
-    `**Set**: ${q.set} | **Difficulty**: ${q.difficulty}`,
+    `**ID**: \`${q.id}\`${q.legacyIds.length ? ` (legacy: ${q.legacyIds.join(", ")})` : ""}`,
+    `**Set**: ${q.set} | **Section**: ${q.sectionTitle} (\`${q.section}/\`) | **Difficulty**: ${q.difficulty}`,
   ];
-
-  if (q.companies.length > 0) {
-    parts.push(`**Companies**: ${q.companies.join(", ")}`);
+  if (q.category) parts.push(`**Category**: ${q.category}`);
+  if (q.tracks.length) parts.push(`**Tracks**: ${q.tracks.join(", ")}`);
+  if (q.llmPath) parts.push(`**LLM path**: step ${q.llmPath.order} (${q.llmPath.stage})`);
+  for (const s of getStudyPlanSlots(q.id)) {
+    parts.push(`**Study plan** (${studyPlan!.id}): week ${s.week}, ${s.day}${s.time ? `, ${s.time}` : ""}${s.star ? " ⭐" : ""}`);
   }
-  if (q.category) {
-    parts.push(`**Category**: ${q.category}`);
-  }
-  parts.push(`**Tracks**: ${q.tracks.join(", ")}`);
-
-  if (q.description) {
-    parts.push(`\n## Description\n${q.description}`);
+  if (q.companies.length) {
+    parts.push(`**Company tags**: ${formatCompanies(q)}`);
+    parts.push(`_${COMPANY_TAG_NOTE}_`);
   }
 
-  if (q.llmPathOrder) {
-    parts.push(`\n**LLM Path**: Step ${q.llmPathOrder} (${q.llmPathStage})`);
+  if (q.description) parts.push(`\n## Description\n${q.description}`);
+
+  parts.push("\n## Notebooks");
+  parts.push(`- Question: ${localPath(q.questionPath)}`);
+  parts.push(`- Colab: ${q.colabUrl}`);
+  if (q.solutionPath) {
+    parts.push(`- Solution (open only after a real attempt): ${localPath(q.solutionPath)}`);
   }
 
-  if (q.hasNotebook && q.questionPath) {
-    parts.push(`\n## Links`);
-    parts.push(`- **Colab (Question)**: ${getColabUrl(q.questionPath)}`);
-    if (q.solutionPath) {
-      parts.push(`- **Colab (Solution)**: ${getColabUrl(q.solutionPath)}`);
-    }
+  parts.push("\n## Grading");
+  if (q.graded) {
+    parts.push(`Auto-graded. Implement ${q.entries.map((e) => `\`${e}\``).join(", ")}, then run:`);
+    parts.push("```python\n" + checkUsage(q) + "\n```");
+    parts.push(`One-time setup, from the repo root: \`${GRADER_SETUP}\``);
   } else {
-    parts.push(`\n*This question does not have a notebook yet.*`);
+    parts.push("Not auto-graded: run the notebook's own checks, then compare with the solution notebook.");
   }
 
-  return {
-    content: [{ type: "text" as const, text: parts.join("\n") }],
-  };
+  const hints = getAuthoredHints(q.id);
+  parts.push(
+    hints?.length
+      ? `\n${hints.length} progressive hints available via get_hint (levels 1–${hints.length}); same as \`torchleet.hint("${q.id}", n)\`.`
+      : "\nNo authored hints; get_hint derives them from the notebook.",
+  );
+
+  return { content: [{ type: "text" as const, text: parts.join("\n") }] };
 }

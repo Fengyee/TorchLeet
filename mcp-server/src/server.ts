@@ -33,28 +33,28 @@ export function createServer(): McpServer {
 
   server.tool(
     "list_questions",
-    "Browse and filter TorchLeet questions by set, difficulty, company, category, or track",
+    "Browse and filter TorchLeet problems by set (v1-v4), difficulty, category, track, auto-graded, or (inferred) company tag",
     listQuestionsSchema,
     async (params) => listQuestions(params),
   );
 
   server.tool(
     "get_question",
-    "Get full details for a specific question including description, companies, and Colab links",
+    "Get a problem's details: description, notebook paths, how to grade it with torchleet.check(), study-plan slot, and (inferred) company tags. Accepts ids, legacy ids (v3-12) or directories",
     getQuestionSchema,
     async (params) => getQuestion(params),
   );
 
   server.tool(
     "get_learning_path",
-    "Get a structured learning path: LLM path (build an LLM from scratch), basics, or advanced",
+    "Get a structured learning path: LLM path (build an LLM from scratch), basics, advanced, or the owner's 4-week study plan (cv-mm-gen-4wk)",
     getLearningPathSchema,
     async (params) => getLearningPath(params),
   );
 
   server.tool(
     "get_hint",
-    "Get a progressive hint for a question (level 1=conceptual, 2=signatures, 3=step-by-step). Never reveals the full solution.",
+    "Get progressive hints for a problem (level 1 = gentlest nudge ... 3 = most specific); the same hints torchleet.hint() prints. Never reveals the full solution.",
     getHintSchema,
     async (params) => getHint(params),
   );
@@ -68,7 +68,7 @@ export function createServer(): McpServer {
 
   server.tool(
     "get_company_prep",
-    "Get a prioritized study plan for a specific company's ML interviews",
+    "List problems carrying a company tag, easiest first. Tags are inferred from public material, not interview reports",
     getCompanyPrepSchema,
     async (params) => getCompanyPrep(params),
   );
@@ -113,7 +113,7 @@ export function createServer(): McpServer {
   server.resource(
     "question-catalog",
     "torchleet://questions",
-    { description: "Full TorchLeet question catalog as JSON", mimeType: "application/json" },
+    { description: "Full TorchLeet problem catalogue (generated from the manifests) as JSON", mimeType: "application/json" },
     async (uri) => ({
       contents: [
         {
