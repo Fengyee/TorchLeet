@@ -9,7 +9,12 @@ Everything is checked as a property:
   one-hot values so the attention weights themselves become readable: they must
   sum to 1 and be exactly 0 wherever the shifted-window mask says -inf.
 * the mask is graded as geometry: an equivalence relation per window, symmetric,
-  no dead rows, and per-window allowed counts of 16 / 8 / 8 / 4 for an 8x8 map.
+  no dead rows, and per-window allowed counts of 16 / 8 / 8 / 4 for an 8x8 map --
+  and, since it is a pure function, against a brute-force "same side of every
+  wrap seam" oracle at other sizes, including Swin-T's 7x7 windows with shift 3
+  (where shift != window_size / 2 exposes a wrongly placed region boundary).
+  Blocked entries may be -inf or a large negative constant (the official Swin
+  code uses -100.0).
 * the blocks are graded by their receptive field. Poking a single token may only
   move the tokens it is allowed to attend to -- the whole 4x4 window for W-MSA,
   and just the 2x2 corner that survives the cyclic shift for SW-MSA. Window
@@ -17,8 +22,8 @@ Everything is checked as a property:
 * the relative position bias is graded by softmax shift invariance: a *constant*
   bias table must leave the block's output untouched while a random one must not.
 
-Sizes match the notebook's worked configuration (8x8 map, 4x4 windows, dim 32)
-because the reference window_attention closes over those module-level values.
+The block checks use the notebook's worked configuration (8x8 map, 4x4 windows,
+dim 32) so a solution tuned to that setup is graded on what it was asked to do.
 """
 import math
 
@@ -86,6 +91,15 @@ def _moved(blk, x, row=0, col=0, tol=1e-6):
         x2 = x.clone()
         x2[0, row, col, :] = x[0, row, col, :] * 2.0 + torch.linspace(-3.0, 3.0, C)
         return (blk(x2) - base).abs().amax(-1) > tol
+
+
+# A blocked pair may be -inf or any large negative constant: the official Swin
+# code uses -100.0, which softmax turns into a weight of ~e^-100 = 0.
+_BLOCKED = -50.0
+
+
+def _allowed(mask):
+    return ~(torch.isinf(mask) | (mask <= _BLOCKED))
 
 
 # --------------------------------------------------------------------------
@@ -159,7 +173,7 @@ def check_attention_honours_the_shifted_window_mask(ns):
     q, k, _ = _qkv(5)
     mask = ns.create_shifted_window_mask(H, W, WS, SHIFT)
     weights = ns.window_attention(q, k, _onehot_values(), mask)[:, :, :NTOK]
-    blocked = torch.isinf(mask) | (mask < -1e5)
+    blocked = ~_allowed(mask)
     for i in range(B * NW):
         wm = blocked[i % NW]
         got = weights[i]
@@ -199,10 +213,6 @@ def check_constant_bias_leaves_attention_unchanged(ns):
 # --------------------------------------------------------------------------
 # create_shifted_window_mask
 # --------------------------------------------------------------------------
-def _allowed(mask):
-    return ~(torch.isinf(mask) | (mask < -1e5))
-
-
 def check_zero_shift_masks_nothing(ns):
     mask = ns.create_shifted_window_mask(H, W, WS, 0)
     assert tuple(mask.shape) == (NW, NTOK, NTOK), (
@@ -216,10 +226,12 @@ def check_zero_shift_masks_nothing(ns):
 def check_mask_entries_are_zero_or_minus_inf(ns):
     mask = ns.create_shifted_window_mask(H, W, WS, SHIFT)
     allowed = _allowed(mask)
-    assert bool((mask[allowed] == 0).all()), \
-        "allowed pairs must contribute 0 to the scores, not some other constant"
-    assert bool((mask[~allowed] < -1e5).all()), \
-        "blocked pairs must be -inf (or an equally large negative) so softmax zeros them"
+    assert bool((mask[allowed] == 0).all()), (
+        "allowed pairs must contribute exactly 0 to the scores; blocked pairs -inf "
+        f"or a large negative (<= {_BLOCKED:g}). Found other values: "
+        f"{sorted(set(mask[allowed][mask[allowed] != 0].tolist()))[:5]}")
+    assert bool((mask[~allowed] <= _BLOCKED).all()), \
+        "blocked pairs must be -inf (or a large negative such as -100) so softmax zeros them"
     diag = torch.arange(NTOK)
     assert bool(allowed[:, diag, diag].all()), \
         "a token always belongs to its own region, so the diagonal is never masked"
@@ -254,6 +266,45 @@ def check_shifted_mask_region_sizes(ns):
         f"after a shift of {SHIFT} on an {H}x{W} map, the four windows should "
         f"allow 16 / 8 / 8 / 4 tokens per query (interior window, two windows "
         f"split by one seam, one split by both); got {got}")
+
+
+def _reference_allowed(h, w, ws, shift):
+    """Brute force, one token pair at a time. After torch.roll by -shift the token
+    at shifted (r, c) came from pre-shift ((r + shift) % h, (c + shift) % w). The
+    pre-shift rows/cols [0, shift) are the ones that wrapped around to the far
+    edge, so two tokens of one shifted window were neighbours before the shift
+    iff they lie on the same side of the row seam AND of the column seam."""
+    nwy, nwx = h // ws, w // ws
+    out = torch.zeros(nwy * nwx, ws * ws, ws * ws, dtype=torch.bool)
+    for wy in range(nwy):
+        for wx in range(nwx):
+            toks = [(wy * ws + a, wx * ws + b) for a in range(ws) for b in range(ws)]
+            side = [(((r + shift) % h) < shift, ((c + shift) % w) < shift) for r, c in toks]
+            for i in range(ws * ws):
+                for j in range(ws * ws):
+                    out[wy * nwx + wx, i, j] = side[i] == side[j]
+    return out
+
+
+def check_shifted_mask_matches_brute_force_at_other_sizes(ns):
+    """Swin-T uses 7x7 windows with shift 3, where shift != window_size / 2."""
+    for (h, w, ws, shift) in ((14, 14, 7, 3), (8, 8, 4, 1), (12, 8, 4, 3), (8, 8, 4, 2)):
+        mask = ns.create_shifted_window_mask(h, w, ws, shift)
+        nw = (h // ws) * (w // ws)
+        assert tuple(mask.shape) == (nw, ws * ws, ws * ws), (
+            f"H={h}, W={w}, window={ws}: the mask should be {(nw, ws * ws, ws * ws)}, "
+            f"got {tuple(mask.shape)}")
+        got, want = _allowed(mask), _reference_allowed(h, w, ws, shift)
+        if not torch.equal(got, want):
+            bad = int((got != want).any(-1).any(-1).nonzero()[0])
+            raise AssertionError(
+                f"H={h}, W={w}, window={ws}, shift={shift}: window {bad} allows the "
+                f"wrong token pairs ({int((got != want).sum())} entries differ from a "
+                f"brute-force reference). torch.roll by -shift sends the first "
+                f"`shift` rows/cols of the map to the far edge, so those are the "
+                f"rows/cols that must form their own region: slice the pre-shift "
+                f"label map at `shift`, not at H - shift (the two only coincide "
+                f"when shift == window_size / 2).")
 
 
 # --------------------------------------------------------------------------
@@ -472,6 +523,7 @@ CHECKS = [
     check_mask_entries_are_zero_or_minus_inf,
     check_mask_partitions_each_window_into_regions,
     check_shifted_mask_region_sizes,
+    check_shifted_mask_matches_brute_force_at_other_sizes,
     check_block_preserves_shape_and_gradients,
     check_unshifted_block_is_window_local,
     check_unshifted_receptive_field_is_one_window,
