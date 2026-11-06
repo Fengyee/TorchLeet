@@ -1,0 +1,25 @@
+id = "vit-components"
+title = "Vision Transformer Building Blocks: Patch Embedding, Position-Embedding Interpolation, DropPath"
+description = "Implement ViT patch embedding (Conv2d and unfold + matmul), DeiT-style position-embedding interpolation for a new resolution, per-sample DropPath, a pre-norm block with LayerScale, and a small ViT classifier."
+difficulty = "medium"
+number = 32
+set = "v4"
+category = "vision"
+tracks = ["basics"]
+
+# GENERATED from the grader spec — edit python/torchleet/problems/*.py, then run: generate.py hints
+hints = [
+  "A patch embedding is a convolution whose kernel equals its stride, and its output grid flattened row by row is the token sequence. Position embeddings are an image of D-channel pixels plus a few prefix rows that are not on the grid. DropPath drops a whole residual branch for a whole sample, not individual activations.",
+  "patchify_linear: F.unfold with kernel = stride = p returns (B, C*p*p, N), each column ordered (channel, row, col) - the same order as the Conv2d weight flattened to (D, C*p*p). interpolate_pos_embed: the grid rows are row-major (h, w, D) but F.interpolate wants (1, D, h, w), so reshape AND permute (a reshape alone scrambles them); bicubic with align_corners=False. DropPath: one Bernoulli(keep_prob) draw per sample, mask shape (B, 1, ..., 1), kept samples divided by keep_prob.",
+  "PatchEmbed: conv, flatten the two spatial dims, move channels last. interpolate_pos_embed: split off the prefix rows, reshape + permute the grid, interpolate to (new_h, new_w), permute back, flatten, and put the untouched prefix in front again. DropPath: identity unless training and drop_prob > 0, otherwise multiply by the scaled mask (no division when keep_prob is 0). ViTBlock: add DropPath(LayerScale(attention of LN1(x))) to x, then the same with LN2 and the MLP; create LayerScale whenever init_values is not None. ViT: CLS token in front of the patch tokens, add pos_embed, blocks, final LayerNorm, head on token 0; block i drops with the i-th of `depth` evenly spaced rates from 0 to drop_path_rate.",
+]
+
+[notebooks]
+question = "vit-components.ipynb"
+solution = "vit-components_SOLN.ipynb"
+
+[grading]
+tier = "A"        # A = auto-graded by check(), C = not graded
+entries = ["PatchEmbed", "patchify_linear", "interpolate_pos_embed", "DropPath", "ViTBlock", "ViT"]
+extras = []
+device = "cpu"
