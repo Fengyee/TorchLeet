@@ -1,6 +1,6 @@
 # ML Breadth & Depth: Rapid Review (CV / Multimodal / Generative)
 
-For Applied MLE, Research Scientist and Research Engineer loops. 119 questions in 9 sections. Every answer is meant to be said out loud in 30–90 seconds.
+For Applied MLE, Research Scientist and Research Engineer loops. 126 questions in 9 sections. Every answer is meant to be said out loud in 30–90 seconds.
 
 **How to use this file**
 
@@ -13,10 +13,10 @@ For Applied MLE, Research Scientist and Research Engineer loops. 119 questions i
 **Contents**
 1. [ML fundamentals](#1-ml-fundamentals) (Q1.1–Q1.17)
 2. [Optimization & training dynamics](#2-optimization--training-dynamics) (Q2.1–Q2.14)
-3. [CNNs & vision](#3-cnns--vision) (Q3.1–Q3.20)
+3. [CNNs & vision](#3-cnns--vision) (Q3.1–Q3.22)
 4. [Transformers & attention](#4-transformers--attention) (Q4.1–Q4.11)
-5. [Multimodal](#5-multimodal) (Q5.1–Q5.12)
-6. [Generative models](#6-generative-models) (Q6.1–Q6.18)
+5. [Multimodal](#5-multimodal) (Q5.1–Q5.14)
+6. [Generative models](#6-generative-models) (Q6.1–Q6.21)
 7. [LLM essentials](#7-llm-essentials) (Q7.1–Q7.7)
 8. [Systems & efficiency](#8-systems--efficiency) (Q8.1–Q8.12)
 9. [Research-scientist specific](#9-research-scientist-specific) (Q9.1–Q9.8)
@@ -34,7 +34,7 @@ For Applied MLE, Research Scientist and Research Engineer loops. 119 questions i
   - High *training* error means bias. Fix with a bigger model, better features, less regularization or longer training.
   - Low train error with high val error means variance. Fix with more data, augmentation, regularization, a smaller model or ensembling.
 - **Caveats:**
-  - The clean decomposition holds only for squared loss.
+  - The clean additive decomposition is for squared loss. It extends to Bregman divergences such as cross-entropy, but not to 0-1 loss.
   - Over-parameterized deep nets show **double descent**: test error can fall again past the interpolation threshold (Belkin et al. 2019; Nakkiran et al. 2019, "Deep Double Descent"). The classical U-curve is not the whole story.
 
 ### Q1.2 Walk through the main regularization techniques.
@@ -48,10 +48,10 @@ For Applied MLE, Research Scientist and Research Engineer loops. 119 questions i
 ### Q1.3 Are L2 regularization and weight decay the same thing?
 - **SGD: yes, up to rescaling.** $w \leftarrow w - \eta(\nabla L + \lambda w) = (1-\eta\lambda)w - \eta\nabla L$.
 - **Adam: no.** If you add $\lambda w$ to the gradient, it gets divided by $\sqrt{\hat v} + \epsilon$. Weights with a large gradient history are then decayed *less*, so regularization is tangled up with the adaptive scaling.
-- **AdamW** (Loshchilov & Hutter, "Decoupled Weight Decay Regularization", ICLR 2019) decays the weights directly: $w \leftarrow w - \eta\left(\frac{\hat m}{\sqrt{\hat v}+\epsilon} + \lambda w\right)$. PyTorch implements this as `p.mul_(1 - lr*wd)` followed by the Adam step, so the decay scales with the LR schedule.
+- **AdamW** (Loshchilov & Hutter, "Decoupled Weight Decay Regularization", ICLR 2019) decays the weights directly: $w \leftarrow w - \eta\left(\frac{\hat m}{\sqrt{\hat v}+\epsilon} + \lambda w\right)$. PyTorch implements this as `p.mul_(1 - lr*wd)` followed by the Adam step, so the per-step decay is `lr*wd` and follows the LR schedule. (The paper multiplies $\lambda$ only by the schedule multiplier, not the base LR, so `wd` values do not transfer 1:1 between codebases or when you change the LR.)
 - **In practice:**
-  - AdamW is the default for transformers and ViTs. Typical $\lambda$ is about 0.05–0.1 for ViT/LLM recipes; PyTorch's default is 0.01.
-  - Usually exclude biases and norm gains (often embeddings too) from decay.
+  - AdamW is the default for transformers and ViTs. Typical $\lambda$ is about 0.05–0.1 for ViT/LLM recipes (CLIP used 0.2); PyTorch's default is 0.01.
+  - Usually exclude biases and norm gains (often embeddings too) from decay. The usual rationale: they are few parameters, so there is little to regularize; pulling a norm gain toward 0 rather than its neutral value 1 just shrinks the layer's output. For a weight followed by a norm layer, the output is invariant to the weight's scale, so decay mainly shrinks $\|w\|$ and raises the *effective* LR ($\propto \eta/\|w\|^2$) rather than limiting capacity (van Laarhoven 2017; Zhang et al. 2019, "Three Mechanisms of Weight Decay Regularization").
 - → practice: torch/hard/optimizers/adamw
 
 ### Q1.4 MLE vs MAP?
@@ -221,7 +221,7 @@ For Applied MLE, Research Scientist and Research Engineer loops. 119 questions i
   - $m_t = \beta_1 m_{t-1} + (1-\beta_1)g_t$ and $v_t = \beta_2 v_{t-1} + (1-\beta_2)g_t^2$.
   - Bias correction: $\hat m_t = m_t/(1-\beta_1^t)$, $\hat v_t = v_t/(1-\beta_2^t)$ (corrects the zero init).
   - Update: $\theta \leftarrow \theta - \eta\,\hat m_t/(\sqrt{\hat v_t} + \epsilon)$.
-  - Defaults are $\beta_1 = 0.9$, $\beta_2 = 0.999$, $\epsilon = 10^{-8}$. LLM and ViT training often uses $\beta_2 = 0.95$ (sometimes 0.98–0.99) for stability.
+  - Defaults are $\beta_1 = 0.9$, $\beta_2 = 0.999$, $\epsilon = 10^{-8}$. LLM pretraining usually lowers $\beta_2$ to 0.95 for stability. Vision recipes vary: 0.95 (MAE), 0.98 (CLIP ViTs), the default 0.999 (DeiT).
 - **Why Adam for transformers:** each parameter gets roughly the same step size regardless of its gradient scale, which handles very different curvature across embeddings, attention, norms and MLPs. SGD with momentum stays competitive on CNN classification and sometimes generalizes better there (debated).
 - **AdamW** = Adam + decoupled weight decay (Q1.3). Adam stores 2 extra states per parameter.
 - Newer optimizers: Lion, Shampoo/SOAP, Muon (orthogonalized momentum for 2-D weight matrices).
@@ -295,7 +295,7 @@ For Applied MLE, Research Scientist and Research Engineer loops. 119 questions i
 | LayerNorm | all features of one sample/token | No | Transformers, RNNs, ConvNeXt |
 | GroupNorm | groups of channels × $(H, W)$ per sample | No | Detection/segmentation and diffusion U-Nets (small batches); often 32 groups |
 | InstanceNorm | each channel × $(H, W)$ per sample (= GN with $G = C$) | No | Style transfer |
-| RMSNorm | features of a token; no mean subtraction, usually no bias | No | LLaMA-style LLMs, many recent ViTs/DiTs |
+| RMSNorm | features of a token; no mean subtraction, usually no bias | No | LLaMA-style LLMs; increasingly in ViTs/DiTs, often as QK-norm |
 
 - **Formulas:**
   - Standard norms compute $\hat x = (x - \mu)/\sqrt{\sigma^2 + \epsilon}$, then apply $\gamma\hat x + \beta$.
@@ -307,6 +307,10 @@ For Applied MLE, Research Scientist and Research Engineer loops. 119 questions i
   - Needs SyncBN for distributed small batches.
   - Awkward for variable-length sequences and autoregressive decoding.
   - Bonus: BN can be folded into the preceding conv at inference.
+- **Why LN rather than BN in transformers** (a common follow-up):
+  - BN's statistics pool over the batch *and* all sequence positions, so they depend on padding, sequence length and batch composition. In NLP transformers these batch statistics fluctuate strongly, which hurts training (Shen et al. 2020, "PowerNorm: Rethinking Batch Normalization in Transformers").
+  - In a causal LM, training-time batch statistics include *future* tokens (a small leak), and generation with batch 1, one token at a time, must fall back to running statistics, which is a train/inference mismatch.
+  - LN normalizes each token on its own, so training and inference compute the same function for any batch size, sequence length or decoding step, with no cross-device sync.
 - **Why norms help:** they allow higher LRs and make optimization less sensitive to init. The original "reduces internal covariate shift" explanation is disputed; Santurkar et al. 2018 argue BN mainly **smooths the loss landscape**. Say it is debated.
 - → practice: v4/dl-fundamentals/normalization-layers, llm/RMS-Norm
 
@@ -328,7 +332,7 @@ For Applied MLE, Research Scientist and Research Engineer loops. 119 questions i
   - Activations (e.g. attention logits) can also overflow fp16's max.
 - **bf16:** no loss scaling needed, simpler and more stable. Needs Ampere+ or TPUs. It is the default for large-model training today.
 - **Wins:** about half the activation memory and tensor-core throughput (A100: 312 TFLOP/s bf16 dense vs 19.5 fp32 and 156 TF32).
-- FP8 (E4M3 for forward, E5M2 for gradients, with per-tensor scaling) is used on H100-class GPUs.
+- FP8 is used on H100-class GPUs. The original recipe is E4M3 for weights/activations and E5M2 for gradients, with per-tensor scaling. Newer recipes use E4M3 throughout with fine-grained block scaling (DeepSeek-V3; MXFP8 on Blackwell).
 - → practice: torch/easy/cuda-amp
 
 ### Q2.10 Label smoothing: what and why?
@@ -426,7 +430,7 @@ For Applied MLE, Research Scientist and Research Engineer loops. 119 questions i
   - At $C = 256$: about $256\cdot64 + 9\cdot64^2 + 64\cdot256 \approx 70$K params.
   - Two full-width 3×3 convs would be $2\cdot9\cdot256^2 \approx 1.18$M.
 - When shapes change, the shortcut becomes a projection: 1×1 conv + BN, with stride 2 when the block downsamples.
-- ResNet-50 has about 25.6M params and about 4 G multiply-adds at 224² (often quoted as "4 GFLOPs").
+- ResNet-50 has about 25.6M params and about 4 G multiply-adds at 224² (often quoted as "4 GFLOPs"; the paper's table says 3.8 G, and torchvision's v1.5, with the stride on the 3×3 conv, is 4.1 G).
 - **Tricks:** zero-init the last BN $\gamma$ per block; ResNet-D downsampling; pre-activation ordering. Variants: Wide ResNet and ResNeXt (grouped convs).
 - "ResNet strikes back" (Wightman et al. 2021): a modern training recipe alone lifts ResNet-50 to about 80% top-1. Recipes matter as much as architectures.
 
@@ -460,14 +464,14 @@ For Applied MLE, Research Scientist and Research Engineer loops. 119 questions i
 - → practice: torch/easy/augmentation, v4/vision/mixup-cutmix
 
 ### Q3.7 One-stage vs two-stage detectors? Anchors? DETR?
-- **Two-stage** (Faster R-CNN, Ren et al. 2015): the backbone feeds a Region Proposal Network, which scores anchors and outputs hundreds to about 2k RoIs. RoIAlign crops features for each RoI, and a head classifies and refines the box. Historically more accurate (especially on small objects) but slower.
+- **Two-stage** (Faster R-CNN, Ren et al. 2015): the backbone feeds a Region Proposal Network, which scores anchors and outputs hundreds to about 2k RoIs. RoIPool (RoIAlign since Mask R-CNN) crops features for each RoI, and a head classifies and refines the box. Historically more accurate (especially on small objects) but slower.
 - **One-stage** (YOLO, SSD, RetinaNet, FCOS): dense class + box predictions at every location in one pass. Faster, but faces extreme foreground/background imbalance; RetinaNet's **focal loss** closed the accuracy gap.
 - **Anchors:** preset boxes at several scales and aspect ratios per location, matched to ground truth by IoU.
   - RPN: >0.7 positive, <0.3 negative. RetinaNet: ≥0.5 positive, <0.4 negative.
   - Regression targets: $t_x = (x - x_a)/w_a$, $t_y = (y - y_a)/h_a$, $t_w = \log(w/w_a)$, $t_h = \log(h/h_a)$.
   - Downsides: many hyperparameters and heavy imbalance.
 - **Anchor-free:** FCOS (per-pixel distances to the four box sides, plus centerness) and CenterNet (center heatmap + size).
-- **DETR** (Carion et al. 2020): a set-prediction transformer with $N$ object queries and a Hungarian-matching loss; no anchors, no NMS. It converges slowly; Deformable DETR and the DINO *detector* fixed that.
+- **DETR** (Carion et al. 2020): a set-prediction transformer with $N$ object queries and a Hungarian-matching loss; no anchors, no NMS (Q3.22). It converges slowly; Deformable DETR and the DINO *detector* fixed that.
 - Open-vocabulary detection (text-conditioned): OWL-ViT, Grounding DINO.
 
 ### Q3.8 IoU and NMS: definition, algorithm, issues?
@@ -499,7 +503,7 @@ For Applied MLE, Research Scientist and Research Engineer loops. 119 questions i
 ### Q3.11 How is detection mAP computed?
 - **Per class:**
   1. Sort all detections by confidence.
-  2. Walk down the list. A detection is a TP if its IoU ≥ threshold with a not-yet-matched ground-truth box of that class (each GT is matched at most once); duplicates count as FPs.
+  2. Walk down the list. A detection is a TP if its IoU ≥ threshold with a not-yet-matched ground-truth box of that class (each GT is matched at most once); duplicates count as FPs. (This is COCO-style matching. The VOC devkit takes the highest-IoU GT even if it is already matched, which makes the detection an FP, and its Python port uses IoU > t. Conventions differ, so state yours.)
   3. Record precision and recall at each rank.
 - **AP** is the area under the PR curve after making precision monotone, $p_{interp}(r) = \max_{r' \ge r}p(r')$. VOC2007 used 11-point interpolation, VOC2010+ all-point, COCO 101-point.
 - **mAP** is the mean over classes.
@@ -512,7 +516,7 @@ For Applied MLE, Research Scientist and Research Engineer loops. 119 questions i
   - *Semantic:* a class per pixel.
   - *Instance:* a mask per object. Mask R-CNN = Faster R-CNN + mask head + RoIAlign.
   - *Panoptic:* things and stuff together.
-  - *Promptable:* SAM, Kirillov et al. 2023.
+  - *Promptable:* SAM, Kirillov et al. 2023 (Q3.21).
 - **U-Net** (Ronneberger, Fischer & Brox 2015): encoder–decoder whose skip connections **concatenate** encoder features into the decoder at each resolution, recovering the spatial detail lost to downsampling. It is also the classic diffusion backbone.
 - **Dice:** $\frac{2|A\cap B|}{|A| + |B|}$, which is F1 over pixels.
   - Soft Dice loss: $1 - \frac{2\sum pg + \epsilon}{\sum p + \sum g + \epsilon}$.
@@ -525,7 +529,7 @@ For Applied MLE, Research Scientist and Research Engineer loops. 119 questions i
 
 ### Q3.13 Upsampling: transposed conv vs interpolation?
 - **Bilinear interpolation:** a weighted average of the 4 neighbors; fixed and smooth. The `align_corners` flag changes the coordinate mapping, and a mismatch between training and export is a classic bug.
-- **Transposed conv:** learnable upsampling. When $K$ is not divisible by $S$, kernel overlap is uneven and produces **checkerboard artifacts** (Odena et al. 2016, Distill). Fix with resize-then-conv, or choose $K$ divisible by $S$.
+- **Transposed conv:** learnable upsampling. When $K$ is not divisible by $S$, kernel overlap is uneven and produces **checkerboard artifacts** (Odena et al. 2016, Distill). Choosing $K$ divisible by $S$ removes the uneven overlap but can still produce artifacts; the robust fix is resize-then-conv (nearest or bilinear upsampling, then a conv).
 - **Pixel shuffle** (sub-pixel conv) is common in super-resolution.
 - RoIAlign uses bilinear sampling to avoid RoIPool's coordinate quantization.
 - → practice: v4/vision/bilinear-interpolation
@@ -538,7 +542,7 @@ For Applied MLE, Research Scientist and Research Engineer loops. 119 questions i
   - Run a pre-LN transformer encoder and put an MLP head on [CLS] (or on the mean-pooled tokens).
 - **Sizes:** ViT-B/16 has 12 layers, $d = 768$, 12 heads, MLP 3072, about 86M params. ViT-L/16 has 24 layers, $d = 1024$, 16 heads, about 307M params.
 - **Inductive bias:** CNNs build in locality, translation equivariance and hierarchy. ViT has only patchification, and spatial structure must be learned through the position embeddings.
-  - So it is less sample-efficient: with the original recipe it trailed ResNets on ImageNet-1k alone and beat them with ImageNet-21k or JFT-300M pretraining.
+  - So it is less sample-efficient. With the original recipe, large ViTs trailed BiT ResNets when pretrained on ImageNet-1k alone, roughly caught up with ImageNet-21k pretraining, and clearly overtook them with JFT-300M.
   - DeiT (Touvron et al. 2021) closed the gap on ImageNet-1k with strong augmentation, regularization and a distillation token.
 - **Cost:** quadratic in the number of tokens, so smaller patches or higher resolution get expensive fast. For higher-resolution fine-tuning, keep the patch size and **2-D interpolate the position embeddings**.
 - High-norm "artifact" tokens appear in large ViTs; adding a few register tokens fixes them (Darcet et al. 2023, "Vision Transformers Need Registers").
@@ -571,7 +575,7 @@ For Applied MLE, Research Scientist and Research Engineer loops. 119 questions i
   - Needs large batches (e.g. 4096) and long training.
 - **MoCo** (He et al. 2020):
   - A queue of negatives from past batches plus a momentum (EMA) key encoder that keeps the keys consistent, so you get many negatives with small batches.
-  - v2 added SimCLR's MLP head and augmentations; v3 targets ViTs.
+  - v2 added SimCLR's MLP head and augmentations; v3 targets ViTs and drops the queue in favor of large batches.
 - **No negatives:** BYOL (online predictor + EMA target), SimSiam (stop-gradient), Barlow Twins and VICReg (variance/decorrelation terms). Each needs some mechanism to avoid collapse.
 - **Evaluate** with linear probe, k-NN, fine-tuning and low-shot accuracy.
 - → practice: v3/modern-architectures/contrastive-loss-clip
@@ -598,7 +602,7 @@ For Applied MLE, Research Scientist and Research Engineer loops. 119 questions i
   - The teacher output is **centered** (subtract a running mean) and **sharpened** (low temperature: $\tau_t$ about 0.04–0.07 vs $\tau_s = 0.1$).
   - Centering stops one dimension dominating; sharpening stops collapse to uniform.
 - **Emergent properties:** [CLS] attention maps segment objects, and features are strong for k-NN.
-- **DINOv2** (Oquab et al. 2023): curated data (LVD-142M), DINO + iBOT masked-token loss, KoLeo regularizer. Strong general-purpose *frozen* features for depth, segmentation and retrieval, widely used as a feature extractor.
+- **DINOv2** (Oquab et al. 2023): curated data (LVD-142M), DINO + iBOT masked-token loss, KoLeo regularizer. Strong general-purpose *frozen* features for depth, segmentation and retrieval, widely used as a feature extractor. DINOv3 (Siméoni et al. 2025) scales to a 7B ViT and adds Gram anchoring to stop dense features degrading over long training.
 - **vs CLIP:** DINO features are stronger for dense and geometric tasks; CLIP features carry language-aligned semantics.
 
 ### Q3.20 How do you explain what a CNN looked at (Grad-CAM)?
@@ -609,9 +613,35 @@ For Applied MLE, Research Scientist and Research Engineer loops. 119 questions i
 - **Caveat:** saliency methods can be insensitive to the model's weights (Adebayo et al. 2018, "Sanity Checks for Saliency Maps"). Use them for debugging spurious features, not as proof.
 - → practice: torch/hard/xai
 
+### Q3.21 What is SAM, and how does promptable segmentation work?
+- (Kirillov et al. 2023, "Segment Anything") **Task:** given an image and a prompt (foreground/background points, a box or a rough mask; free-form text only as a proof of concept), return a valid mask, even when the prompt is ambiguous.
+- **Architecture,** split so that one heavy pass serves many cheap prompts:
+  - *Image encoder:* an MAE-pretrained ViT-H/16 at 1024×1024 (windowed attention plus a few global blocks) produces a 64×64×256 embedding, computed once per image.
+  - *Prompt encoder:* points and boxes become positional encodings plus learned type embeddings. A mask prompt is embedded with convs and added to the image embedding.
+  - *Mask decoder:* two transformer blocks with two-way cross-attention (prompt tokens ↔ image embedding), then upsampling and a dot product with per-mask output tokens. Prompt encoder + decoder take about 50 ms on CPU in a browser, so clicking feels interactive.
+- **Ambiguity:** a click on a shirt could mean the shirt, the person or a button. SAM predicts 3 masks (roughly whole, part, subpart) with a predicted IoU each for ranking, and backpropagates only the lowest-loss mask.
+- **Training:** focal + Dice loss (20:1), with simulated interactive prompting (11 prompt rounds per mask).
+- **Data engine → SA-1B** (11M images, 1.1B masks): assisted-manual annotation, then semi-automatic, then fully automatic (prompt with a 32×32 point grid, keep confident and stable masks, NMS). 99.1% of the released masks are fully automatic. The model-in-the-loop data engine is as much the contribution as the model.
+- **Limits:** masks carry no class labels; it can miss fine structures, and boundaries are less crisp than specialist methods; the ViT-H encoder is heavy (distilled variants such as MobileSAM and EfficientSAM exist).
+- **Successors:**
+  - SAM 2 (Ravi et al. 2024) handles video with a streaming memory of past frames (memory attention) and a hierarchical Hiera encoder.
+  - SAM 3 (Carion et al. 2025) adds *promptable concept segmentation*: a short noun phrase or an image exemplar returns masks and identities for **all** matching instances.
+  - Before SAM 3, a common pattern was to feed an open-vocabulary detector's boxes to SAM as prompts (Grounded-SAM).
+
+### Q3.22 How does DETR's set-prediction loss (Hungarian matching) work?
+- **Setup:** the decoder turns $N = 100$ learned object queries into $N$ predictions. Each is a class distribution that includes a "no object" class ∅, plus a box $(c_x, c_y, w, h)$ normalized to $[0, 1]$. The ground truth is padded with ∅ to $N$ entries.
+- **Step 1, matching** (no gradient): find the permutation $\hat\sigma$ that minimizes $\sum_i \mathcal L_{match}(y_i, \hat y_{\sigma(i)})$ with the Hungarian algorithm (`scipy.optimize.linear_sum_assignment`, $O(N^3)$). For a real object, $\mathcal L_{match} = -\hat p_{\sigma(i)}(c_i) + \mathcal L_{box}$. It uses the probability, not the log-probability, so the class term is on the same scale as the box term.
+- **Step 2, loss on the matched pairs:** $-\log\hat p_{\hat\sigma(i)}(c_i)$ for every slot (∅ terms down-weighted by 10 for class imbalance), plus for real objects $\mathcal L_{box} = \lambda_{L1}\|b - \hat b\|_1 + \lambda_{iou}\mathcal L_{GIoU}$ with $\lambda_{L1} = 5$, $\lambda_{iou} = 2$, normalized by the number of objects. GIoU is added because L1 on boxes is scale-dependent.
+- **Why no NMS:** the assignment is one-to-one, so a second prediction of an already-matched object is trained toward ∅. Queries see each other through self-attention, so the model learns to de-duplicate. Classic detectors assign many anchors to each object and remove duplicates with NMS afterwards.
+- **Auxiliary losses:** the same heads and loss after every decoder layer.
+- **Weaknesses:** slow convergence (300–500 epochs on COCO vs 36–109 for the paper's Faster R-CNN baselines), unstable matching early in training, and weak small-object AP from single-scale features (−5.5 AP$_S$ but +7.8 AP$_L$ vs a Faster R-CNN-FPN of the same size).
+- **Fixes:** Deformable DETR (multi-scale deformable attention, about 10× fewer epochs); DAB-/DN-DETR (queries as anchor boxes; denoising queries that skip matching); the DINO detector (contrastive denoising, mixed query selection); one-to-many auxiliary matching (H-DETR, Group DETR) for more positives; RT-DETR for real time.
+- → practice: v4/vision/iou-nms (GIoU and NMS)
+
 > **Say it in one breath**
 > - Conv output size is $\lfloor (I + 2P - D(K-1) - 1)/S \rfloor + 1$, params are $K^2C_{in}C_{out}/g$ (+bias), and MACs are weights × $H_{out}W_{out}$. Depthwise-separable convs cut FLOPs about 8–9× but are memory-bound.
 > - Detection uses IoU matching, box regression, focal loss for imbalance, FPN for scale, NMS to dedup and COCO AP at IoU 0.5:0.95. Segmentation uses U-Net skips, Dice/CE and mIoU.
+> - DETR replaces anchors + NMS with one-to-one Hungarian matching (class + L1 + GIoU). SAM runs a heavy image encoder once and a light prompt decoder per click, and outputs 3 masks to handle ambiguity.
 > - ViT is patches + transformer with weak inductive bias, so it is data-hungry. Fixes are pretraining scale or the DeiT recipe; Swin adds hierarchy and windows; ConvNeXt shows the recipe matters as much as the architecture.
 > - Self-supervised vision has two families: contrastive/self-distillation (SimCLR, MoCo, DINO) gives linearly separable semantic features, while masked modeling (MAE) gives great fine-tuning features cheaply by encoding only 25% of patches.
 
@@ -659,7 +689,7 @@ For Applied MLE, Research Scientist and Research Engineer loops. 119 questions i
   - A fully masked row makes softmax of all $-\infty$ = NaN.
   - `-1e9` overflows fp16; use `torch.finfo(dtype).min`.
   - Left-pad decoder-only models for batched generation.
-  - Boolean-mask conventions differ: in PyTorch's `key_padding_mask`, True means *ignore*; elsewhere True can mean *keep*.
+  - Boolean-mask conventions differ: in `nn.MultiheadAttention`'s `key_padding_mask`, True means *ignore*; in `F.scaled_dot_product_attention`'s boolean `attn_mask`, True means *attend*.
 - **Other masks:** prefix-LM (bidirectional over the prefix), block-causal (frames or images), Flamingo's "attend only to the latest image" mask.
 
 ### Q4.5 Positional encodings: sinusoidal, learned, relative, RoPE, 2-D?
@@ -676,7 +706,7 @@ For Applied MLE, Research Scientist and Research Engineer loops. 119 questions i
 - → practice: llm/Sinusoidal-Positional-Embedding, llm/Rotary-Positional-Embedding, v3/modern-architectures/2d-positional-embeddings
 
 ### Q4.6 Pre-norm vs post-norm?
-- **Post-LN** (original Transformer, BERT): $x_{l+1} = \mathrm{LN}(x_l + F(x_l))$. The LN sits on the residual path, which can make gradients badly scaled, so it needs careful warmup and is unstable for deep stacks. When it does train, it can reach slightly better final quality.
+- **Post-LN** (original Transformer, BERT): $x_{l+1} = \mathrm{LN}(x_l + F(x_l))$. The LN sits on the residual path, which can make gradients badly scaled, so it needs careful warmup and is unstable for deep stacks. When it does train, it is often reported to reach slightly better final quality (e.g. Liu et al. 2020, "Understanding the Difficulty of Training Transformers").
 - **Pre-LN** (GPT-2 onward, ViT, most modern models): $x_{l+1} = x_l + F(\mathrm{LN}(x_l))$, plus a final LN before the head.
   - The clean identity path gives stable gradients, so it trains with little warmup (Xiong et al. 2020, "On Layer Normalization in the Transformer Architecture").
   - Downside: the residual-stream norm grows with depth, so later layers contribute relatively less.
@@ -778,7 +808,7 @@ For Applied MLE, Research Scientist and Research Engineer loops. 119 questions i
 - **No normalization across the batch:**
   - Each pair's loss is local, so you don't need the full $N\times N$ softmax gathered on every device.
   - A chunked "pass the negatives around" implementation is memory-efficient.
-  - It beats softmax at small to moderate batch sizes; gains saturate around 32k.
+  - It clearly beats softmax at small batch sizes (a few thousand), is on par at large ones, and both losses stop improving around a 32k batch.
 - SigLIP and SigLIP 2 encoders are popular VLM vision towers (e.g. PaliGemma uses SigLIP).
 - → practice: v4/multimodal/siglip-loss
 
@@ -815,7 +845,7 @@ For Applied MLE, Research Scientist and Research Engineer loops. 119 questions i
 - **Stage 2, visual instruction tuning:** keep the vision encoder frozen and train the projector + LLM on instruction data.
   - LLaVA: 158K GPT-4-generated conversations, detailed descriptions and reasoning, built from COCO captions and boxes.
   - LLaVA-1.5: 665K, adding academic VQA with short-answer format prompts.
-- **Tokens:** 336 px / 14 gives 24×24 = **576 visual tokens**. LLaVA-NeXt's "AnyRes" tiles high-resolution images (more tokens), which is key for OCR and documents.
+- **Tokens:** 336 px / 14 gives 24×24 = **576 visual tokens**. LLaVA-NeXt's "AnyRes" tiles high-resolution images (more tokens), which is key for OCR and documents (Q5.13).
 - The loss is applied only to assistant-response tokens.
 - → practice: v4/multimodal/vlm-connector
 
@@ -825,7 +855,7 @@ For Applied MLE, Research Scientist and Research Engineer loops. 119 questions i
 - **Token reduction in between:** pixel-shuffle or 2×2 merging (e.g. InternVL; Qwen2-VL merges 2×2 patches), pooling, conv abstractors.
 - **Cross-attention** (Flamingo, Llama 3.2 Vision): vision doesn't consume LLM context and the LLM can stay frozen, but it adds more new parameters.
 - **Early fusion / native multimodal** (Chameleon, Fuyu): image patches or VQ tokens go straight into a single transformer.
-- **What matters most empirically:** image resolution and visual token count, then data mixture and model size; connector type matters comparatively little (Apple's MM1 ablations, McKinzie et al. 2024). Also important: the vision encoder (SigLIP is often better than CLIP) and unfreezing it in later stages.
+- **What matters most empirically:** the image encoder, image resolution and visual-token count have a large effect, the pretraining data mix (captions, interleaved, text-only) matters a lot, and connector type matters comparatively little (Apple's MM1 ablations, McKinzie et al. 2024). Also important: the vision encoder (SigLIP is often better than CLIP) and unfreezing it in later stages.
 - → practice: v4/multimodal/vlm-connector
 
 ### Q5.8 How do VQ-VAE and VQGAN tokenize images?
@@ -837,7 +867,7 @@ For Applied MLE, Research Scientist and Research Engineer loops. 119 questions i
 - **VQGAN** (Esser et al. 2021, "Taming Transformers for High-Resolution Image Synthesis"):
   - Adds perceptual (LPIPS) and PatchGAN adversarial losses, giving sharp reconstructions at high compression (e.g. 256² → 16×16 tokens, $f = 16$).
   - A GPT-style transformer then models the token sequence.
-- **Problems:** codebook collapse and low utilization. Fixes include k-means init, dead-code restarts, low-dimensional L2-normalized codes (ViT-VQGAN), and lookup-free or finite scalar quantization (LFQ in MAGVIT-v2; FSQ rounds a few dims to a few levels, so there is no learned codebook and no collapse).
+- **Problems:** codebook collapse and low utilization. Fixes include k-means init, dead-code restarts, low-dimensional L2-normalized codes (ViT-VQGAN), and lookup-free or finite scalar quantization (LFQ in MAGVIT-v2; FSQ rounds a few dims to a few levels, so there is no learned codebook and utilization is near-full).
 - **Trade-off:** compression factor and vocab size vs reconstruction fidelity vs how easy the tokens are for the generator to model. Continuous (KL-VAE) latents suit diffusion; discrete tokens suit AR/LLM-style models.
 - → practice: v4/generative/vae, torch/easy/autoencoder
 
@@ -892,12 +922,40 @@ For Applied MLE, Research Scientist and Research Engineer loops. 119 questions i
 - **Dual encoder** (CLIP, SigLIP): independent embeddings that can be precomputed. Fast retrieval and zero-shot classification, but weak on fine-grained compositional reasoning.
 - **Fusion / cross-encoder** (ITM heads, ALBEF/BLIP): joint attention over image and text. Accurate matching and VQA, but scoring every query–item pair makes it $O(N\cdot M)$ for retrieval, so use it for **re-ranking**.
 - **Generative VLM** (LLaVA, Flamingo, Qwen-VL): open-ended answers, instruction following and reasoning. But it is expensive, can hallucinate and is hard to evaluate.
-- **Hybrids:** CoCa trains contrastive + captioning losses in one model. Production systems often cascade dual encoder → re-ranker → VLM.
+- **Hybrids:** CoCa trains contrastive + captioning losses in one model (Q5.14). Production systems often cascade dual encoder → re-ranker → VLM.
+
+### Q5.13 How do VLMs handle high-resolution and arbitrary aspect-ratio images?
+- **Problem:** vision towers are pretrained at a fixed size (224–448 px). Squashing or center-cropping a document or a wide photo destroys small text and objects. Simply raising the resolution grows the token count quadratically (336 → 672 px is 4× the tokens), and the position embeddings must be interpolated.
+- **Tiling ("AnyRes", dynamic tiling):**
+  - From a set of candidate grids, pick the one whose aspect ratio and resolution best fit the image. Resize/pad, split into encoder-sized tiles and encode each tile separately with the unchanged ViT. Add a downsampled global thumbnail for context.
+  - LLaVA-NeXt: 336-px tiles in 2×2, 1×{2,3,4} or {2,3,4}×1 grids (up to 672×672 or 336×1344), so up to $5 \times 576 = 2{,}880$ visual tokens. A learned newline token after each row tells the LLM the 2-D layout.
+  - InternVL 1.5: 448-px tiles, 1–12 tiles in training (up to 40 at test), pixel shuffle to 256 tokens per tile, so up to 3,328 tokens with the thumbnail.
+  - Downsides: objects get split at tile seams, and tokens grow with resolution.
+- **Native (dynamic) resolution:** run the ViT at the image's own resolution and aspect ratio, so the token count follows the pixel count.
+  - Qwen2-VL replaces the ViT's absolute position embeddings with 2-D RoPE, uses 14-px patches and merges 2×2 neighbors with an MLP. One LLM token then covers 28×28 px (a 224² image gives 64 visual tokens), within min/max pixel budgets. M-RoPE (Q4.5) gives the LLM time/height/width positions.
+  - NaViT ("Patch n' Pack", Dehghani et al. 2023) packs images of different sizes into one sequence with attention masks. SigLIP 2's NaFlex variant keeps the native aspect ratio.
+- **Controlling the budget:** pixel shuffle or 2×2 merging, pooling, caps on tiles or pixels. For video, use fewer tokens per frame and merge over time (Qwen2-VL encodes pairs of frames with a 3-D conv).
+- **Interview point:** resolution vs token count vs latency is the main knob. OCR, document and chart tasks gain most from resolution, and MM1 found resolution and token count among the biggest levers (Q5.7).
+- → practice: v4/multimodal/vlm-connector
+
+### Q5.14 Contrastive vs generative (captioning) pretraining for vision encoders: trade-offs?
+- **Contrastive** (CLIP, SigLIP): learn a joint embedding space by matching images to their captions within a batch.
+  - Pros: zero-shot classification and retrieval straight from precomputed embeddings, and no text decoder to train.
+  - Cons: the softmax version needs very large batches for negatives. A caption only has to be told apart from the other captions in the batch, so the model can ignore word order and relations ("bag-of-words" behavior, Q5.2).
+- **Generative / captioning** (SimVLM, CapPa, or the LM loss inside a VLM): predict the caption token by token from the image.
+  - Pros: every token supervises, there is no need for huge batches, and the model has to account for the whole caption, so it handles compositional structure better.
+  - Cons: you need a decoder, and zero-shot classification means scoring every class name with it, which is slower and usually less accurate.
+- **Evidence:**
+  - CLIP's own ablation: a transformer captioner learned zero-shot ImageNet about 3× more slowly than a bag-of-words predictor, and the contrastive objective was another 4× more efficient. That is why CLIP is contrastive.
+  - Tschannen et al. 2023 ("Image Captioners Are Scalable Vision Learners Too", CapPa), with matched data and compute: captioning encoders are competitive on classification, better when plugged into a VLM and clearly better on ARO/SugarCrepe, but lag in zero-shot classification.
+- **Hybrids are now common:** CoCa (contrastive + captioning in one model), BLIP's ITC + ITM + LM, SigLIP 2 (sigmoid loss plus a captioning decoder, self-distillation and masked prediction), AIMv2 (Fini et al. 2024; a decoder autoregressively generates image patches and text).
+- **Rule of thumb:** if you need an embedding for retrieval, zero-shot classification or data filtering, use contrastive (or a hybrid). For feeding an LLM either works; most open VLMs start from a contrastively pretrained encoder (often SigLIP) and unfreeze it in later training stages.
 
 > **Say it in one breath**
 > - CLIP uses a symmetric InfoNCE over an $N\times N$ cosine-similarity matrix with learnable temperature (init 0.07, logit scale capped at 100) and large batches. SigLIP swaps the softmax for per-pair sigmoid with a learnable bias (init −10), so there is no global normalization and small batches work.
 > - VLM connectors span three designs: MLP projector (LLaVA, all 576 tokens), learned-query compressors (Q-Former 32, Perceiver Resampler 64) and gated cross-attention (Flamingo, tanh gate init 0). Resolution and data matter more than connector type.
 > - LLaVA trains in two stages: (1) projector only on captions, (2) projector + LLM on instruction data with the vision encoder frozen.
+> - For high resolution, either tile into encoder-sized crops plus a thumbnail (AnyRes, InternVL) or run the ViT at native resolution with 2-D RoPE (Qwen2-VL). Contrastive encoders give embeddings for retrieval; captioning encoders handle composition better; hybrids are common.
 > - Evaluate with Recall@K, VQA accuracy, CIDEr/CLIPScore, CHAIR/POPE for hallucination, and always a text-only blind baseline.
 
 ---
@@ -917,7 +975,7 @@ For Applied MLE, Research Scientist and Research Engineer loops. 119 questions i
 
 ### Q6.2 What is the reparameterization trick?
 - **Problem:** we need $\nabla_\phi\mathbb E_{q_\phi(z|x)}[f(z)]$, but sampling $z$ is not differentiable with respect to $\phi$.
-- **Trick:** write $z = \mu_\phi(x) + \sigma_\phi(x)\odot\epsilon$ with $\epsilon \sim \mathcal N(0, I)$. The randomness now comes from a fixed distribution, so $\nabla_\phi\mathbb E_\epsilon[f(\mu + \sigma\epsilon)] = \mathbb E_\epsilon[\nabla_\phi f(\cdot)]$. This is a low-variance pathwise gradient.
+- **Trick:** write $z = \mu_\phi(x) + \sigma_\phi(x)\odot\epsilon$ with $\epsilon \sim \mathcal N(0, I)$. The randomness now comes from a fixed distribution, so $\nabla_\phi\mathbb E_\epsilon[f(\mu + \sigma\epsilon)] = \mathbb E_\epsilon[\nabla_\phi f(\cdot)]$. This pathwise gradient usually has much lower variance than the score-function estimator below, but it needs $f$ differentiable in $z$ and a continuous, reparameterizable $q$.
 - **Alternatives:**
   - Score-function / REINFORCE: $\mathbb E[f(z)\nabla_\phi\log q_\phi(z)]$. Works for discrete $z$ but has high variance (needs baselines).
   - Gumbel-softmax relaxation.
@@ -929,7 +987,7 @@ For Applied MLE, Research Scientist and Research Engineer loops. 119 questions i
   - Fixes: KL annealing or warmup (β from 0 to 1), free bits (no KL penalty below a per-dimension floor), a weaker decoder or word dropout, $z$ skip-connections, aggressive encoder updates.
 - **Blurriness:** a factorized Gaussian likelihood (≈ MSE) averages over plausible outputs. There are also "prior holes": regions of $p(z)$ that the encoder never produces.
   - Fixes: perceptual and adversarial losses (as in VQGAN), hierarchical VAEs (NVAE, VDVAE), learned priors.
-- **β-VAE** (Higgins et al. 2017): weight the KL by $\beta > 1$ for more disentangled but worse reconstructions. Conversely, Stable Diffusion's autoencoder uses a *tiny* KL weight, making it essentially a regularized autoencoder.
+- **β-VAE** (Higgins et al. 2017): weight the KL by $\beta > 1$ for more disentangled but worse reconstructions. The disentanglement gains are contested: Locatello et al. (2019) showed that unsupervised disentanglement depends heavily on seeds and hyperparameters and cannot be identified without inductive biases. Conversely, Stable Diffusion's autoencoder uses a *tiny* KL weight, making it essentially a regularized autoencoder.
 
 ### Q6.4 GAN objective, optimal discriminator, non-saturating loss?
 - **Objective** (Goodfellow et al. 2014): $\min_G\max_D\ \mathbb E_{x\sim p_{data}}[\log D(x)] + \mathbb E_z[\log(1 - D(G(z)))]$.
@@ -957,7 +1015,7 @@ For Applied MLE, Research Scientist and Research Engineer loops. 119 questions i
   - $\tilde\mu_t = \frac{\sqrt{\bar\alpha_{t-1}}\,\beta_t}{1 - \bar\alpha_t}x_0 + \frac{\sqrt{\alpha_t}(1 - \bar\alpha_{t-1})}{1 - \bar\alpha_t}x_t$
   - $\tilde\beta_t = \frac{1 - \bar\alpha_{t-1}}{1 - \bar\alpha_t}\beta_t$.
 - **Reverse model:** $p_\theta(x_{t-1} \mid x_t) = \mathcal N(\mu_\theta, \sigma_t^2 I)$ with $\mu_\theta = \frac{1}{\sqrt{\alpha_t}}\left(x_t - \frac{\beta_t}{\sqrt{1 - \bar\alpha_t}}\,\epsilon_\theta(x_t, t)\right)$. Use $\sigma_t^2 = \beta_t$ or $\tilde\beta_t$ (similar results in DDPM; Improved DDPM learns it).
-- **Training** (Ho et al. 2020): sample $x_0$, $t \sim U\{1..T\}$ and $\epsilon$, then minimize $\|\epsilon - \epsilon_\theta(\sqrt{\bar\alpha_t}x_0 + \sqrt{1 - \bar\alpha_t}\epsilon,\ t)\|^2$. This is "$L_{simple}$": the ELBO with its per-$t$ weights dropped.
+- **Training** (Ho et al. 2020): sample $x_0$, $t \sim U\{1..T\}$ and $\epsilon$, then minimize $\|\epsilon - \epsilon_\theta(\sqrt{\bar\alpha_t}x_0 + \sqrt{1 - \bar\alpha_t}\epsilon,\ t)\|^2$. This is "$L_{simple}$": the ELBO with its per-$t$ weights dropped. Relative to the ELBO this down-weights the easy small-$t$ terms, so the network focuses on harder denoising at larger $t$; it gave better samples but worse log-likelihood than the true bound.
 - **Sampling:** start from $x_T \sim \mathcal N(0, I)$ and iterate $x_{t-1} = \mu_\theta(x_t, t) + \sigma_t z$ (no noise at the last step).
 - **Score view:** $\epsilon_\theta(x_t, t) \approx -\sqrt{1 - \bar\alpha_t}\,\nabla_{x_t}\log q(x_t)$. Diffusion is denoising score matching across noise levels (the SDE view of Song et al. 2021).
 - → practice: v3/modern-architectures/ddpm
@@ -967,8 +1025,8 @@ For Applied MLE, Research Scientist and Research Engineer loops. 119 questions i
 - **v-prediction** (Salimans & Ho 2022, "Progressive Distillation for Fast Sampling of Diffusion Models"): $v = a_t\epsilon - s_tx_0$. Then $\hat x_0 = a_tx_t - s_t\hat v$ and $\hat\epsilon = s_tx_t + a_t\hat v$.
 - They share the same optimum but imply **different loss weighting across noise levels** and different numerics:
   - **ε-pred:** at high noise ($a_t \to 0$), recovering $\hat x_0$ divides by about 0 and amplifies errors. It is incompatible with zero terminal SNR.
-  - **x₀-pred:** tends toward blurry, averaged outputs at low noise.
-  - **v-pred:** well-conditioned across SNRs. Standard for distillation, zero-terminal-SNR schedules (Lin et al. 2023, "Common Diffusion Noise Schedules and Sample Steps are Flawed") and many video models.
+  - **x₀-pred:** since $\|\hat\epsilon - \epsilon\|^2 = \mathrm{SNR}\cdot\|\hat x_0 - x_0\|^2$, an unweighted x₀-MSE is the ε-MSE divided by SNR. It puts little weight on low-noise steps (fine detail), and recovering $\hat\epsilon = (x_t - a_t\hat x_0)/s_t$ divides by $s_t \to 0$ there. Ho et al. (2020) found it gave worse samples than ε-pred. It has come back for pixel-space transformers with large patches (Li & He 2025, "Back to Basics: Let Denoising Generative Models Denoise"), where they report ε- and v-prediction fail.
+  - **v-pred:** well-conditioned across SNRs. Introduced for progressive distillation; used with zero-terminal-SNR schedules (Lin et al. 2023, "Common Diffusion Noise Schedules and Sample Steps are Flawed"), SD 2.x-768 and Imagen Video.
 - Flow matching's velocity target (data − noise) is a close cousin.
 - **Unifying view:** all of these are $\mathbb E\,w(\lambda_t)\|\hat x_0 - x_0\|^2$ with different weightings over log-SNR $\lambda_t$ (Kingma et al. 2021, "Variational Diffusion Models"; Kingma & Gao 2023).
 
@@ -979,7 +1037,7 @@ For Applied MLE, Research Scientist and Research Engineer loops. 119 questions i
 - **Why η = 0 is useful:** it is a first-order discretization of the probability-flow ODE.
   - You can sample on a sub-sequence of timesteps (e.g. 50 instead of 1000) with little quality loss.
   - The noise ↔ image map is deterministic, enabling inversion for editing and latent interpolation.
-- **Faster still:** higher-order ODE solvers (DPM-Solver++, UniPC, Heun in EDM) or distillation to 1–4 steps (progressive distillation, consistency models, adversarial distillation).
+- **Faster still:** higher-order ODE solvers (DPM-Solver++, UniPC, Heun in EDM) or distillation to 1–4 steps (progressive distillation, consistency models, adversarial distillation; Q6.19).
 - → practice: v3/modern-architectures/ddim-cfg
 
 ### Q6.9 Noise schedules: why do they matter?
@@ -997,7 +1055,7 @@ For Applied MLE, Research Scientist and Research Engineer loops. 119 questions i
   - Sample with $\tilde\epsilon = \epsilon_\theta(x_t, \varnothing) + w\,\big(\epsilon_\theta(x_t, c) - \epsilon_\theta(x_t, \varnothing)\big)$.
   - $w = 1$ is plain conditional sampling; $w > 1$ extrapolates (SD default about 7.5).
   - **Convention:** the paper writes $(1 + w)\epsilon_c - w\epsilon_\varnothing$, i.e. $w$ shifted by 1. State which one you use.
-- **Interpretation:** in score form, $\nabla\log p(x \mid c) + (w - 1)\nabla\log p(c \mid x)$, with an *implicit classifier* $p(c \mid x) \propto p(x \mid c)/p(x)$. It sharpens toward samples that are clearly identifiable as $c$.
+- **Interpretation:** in score form, $\nabla\log p(x \mid c) + (w - 1)\nabla\log p(c \mid x)$, with an *implicit classifier* $p(c \mid x) \propto p(x \mid c)/p(x)$. It sharpens toward samples that are clearly identifiable as $c$. Strictly, this is a heuristic: the guided scores at different noise levels are not the scores of one noised "tilted" distribution, so CFG does not sample exactly from $p(x \mid c)\,p(c \mid x)^{w-1}$ (Bradley & Nakkiran 2024, "Classifier-Free Guidance is a Predictor-Corrector").
 - **Trade-off:** higher $w$ gives better prompt adherence and fidelity but less diversity. FID improves and then degrades, so plot FID vs CLIP score. Very high $w$ oversaturates and adds artifacts.
 - **Cost:** 2 forward passes per step (batched together).
 - **Tricks:** guidance intervals and schedules, rescaled CFG, CFG distillation, negative prompts (replace $\varnothing$ with a negative-prompt embedding).
@@ -1018,7 +1076,7 @@ For Applied MLE, Research Scientist and Research Engineer loops. 119 questions i
 - **Diffusion U-Net** (DDPM/ADM/SD):
   - Conv ResBlocks at multiple resolutions, with self-attention (plus cross-attention for text) at lower resolutions.
   - Encoder–decoder skip connections.
-  - The timestep enters via adaptive GroupNorm scale/shift.
+  - The timestep embedding is added to each ResBlock's features (DDPM, SD) or applied as an adaptive GroupNorm scale/shift (ADM).
   - Strong inductive bias; efficient at small scale.
 - **DiT** (Peebles & Xie 2023, "Scalable Diffusion Models with Transformers"):
   - Patchify the latent: a 32×32×4 latent with $p = 2$ gives 256 tokens. Then standard ViT blocks.
@@ -1031,15 +1089,15 @@ For Applied MLE, Research Scientist and Research Engineer loops. 119 questions i
 
 ### Q6.13 Flow matching / rectified flow?
 - **Goal:** learn a velocity field $v_\theta(x, t)$ whose ODE $\frac{dx}{dt} = v_\theta$ transports noise to data.
-- **Linear-path recipe** (Liu et al. 2022, "Flow Straight and Fast"; Lipman et al. 2023, "Flow Matching for Generative Modeling"; Albergo & Vanden-Eijnden, stochastic interpolants):
+- **Linear-path recipe** (Liu et al. 2022, "Flow Straight and Fast"; Lipman et al. 2023, "Flow Matching for Generative Modeling"; Albergo & Vanden-Eijnden 2023, stochastic interpolants). This is the repo's convention, noise at $t = 0$:
   - Sample $x_0 \sim \mathcal N(0, I)$, $x_1 \sim p_{data}$, $t \sim U[0, 1]$.
   - Set $x_t = (1 - t)x_0 + tx_1$.
   - Minimize $\mathbb E\,\|v_\theta(x_t, t) - (x_1 - x_0)\|^2$.
-- **Why it's simulation-free:** regressing on the per-pair *conditional* velocity has the same gradient as regressing on the intractable *marginal* velocity field.
+- **Why it's simulation-free:** training never integrates the ODE. It works because regressing on the per-pair *conditional* velocity has the same gradient as regressing on the intractable *marginal* velocity field (Lipman et al.), so the optimum is the marginal field $\mathbb E[x_1 - x_0 \mid x_t]$ and the loss does not go to zero.
 - **Sampling:** integrate from $t = 0$ to 1, e.g. Euler $x_{t+\Delta t} = x_t + \Delta t\,v_\theta(x_t, t)$. The paths are straighter than typical diffusion paths, so fewer steps are needed. **Reflow** (retraining on the model's own noise→sample couplings) straightens them further toward 1-step.
 - Not perfectly straight, though: the per-pair straight lines cross each other. The learned *marginal* flow averages them, and ODE trajectories cannot cross, so its paths are curved. Reflow reduces that curvature.
 - **Relation to diffusion:** Gaussian diffusion is also a flow, along curved paths. The two are equivalent up to schedule and loss weighting, and flow matching with a Gaussian source ≈ diffusion with a particular schedule and a v-like target.
-- **Conventions differ:** SD3 (Esser et al. 2024, "Scaling Rectified Flow Transformers for High-Resolution Image Synthesis") writes $x_t = (1 - t)x_0 + t\epsilon$ with $t = 1$ as noise, and samples $t$ from a logit-normal to emphasize mid-range times. Flux also uses rectified flow.
+- **Conventions differ:** SD3 (Esser et al. 2024, "Scaling Rectified Flow Transformers for High-Resolution Image Synthesis") writes $z_t = (1 - t)\,x_{data} + t\,\epsilon$, i.e. $t = 1$ is noise, so its velocity target $\epsilon - x_{data}$ has the opposite sign and sampling runs from $t = 1$ to 0. It samples $t$ from a logit-normal to emphasize mid-range times. Flux also uses rectified flow.
 - → practice: v4/generative/flow-matching
 
 ### Q6.14 Autoregressive image generation: how and trade-offs?
@@ -1049,27 +1107,28 @@ For Applied MLE, Research Scientist and Research Engineer loops. 119 questions i
   - Gives exact likelihood in token space and reuses the LLM stack; native multimodal models (e.g. Chameleon) follow this route.
 - **Downsides:** sequential decoding of hundreds to thousands of tokens is slow; raster order is arbitrary for 2-D data; errors accumulate; the tokenizer caps quality.
 - **Variants:**
-  - **MaskGIT/MUSE:** bidirectional masked-token modeling with parallel iterative decoding (about 8–12 steps).
+  - **MaskGIT/MUSE:** bidirectional masked-token modeling with parallel iterative decoding. Each step predicts all masked tokens, keeps the most confident ones and re-masks the rest on a cosine schedule. MaskGIT uses 8 steps for 256 tokens (vs 256 AR steps); Muse uses 24 base + 8 super-resolution steps.
   - **VAR** (Tian et al. 2024): next-*scale* prediction, coarse to fine.
-  - **MAR** (Li et al. 2024): AR over continuous tokens with a small per-token diffusion head, no VQ.
+  - **MAR** (Li et al. 2024, "Autoregressive Image Generation without Vector Quantization"): AR, including MaskGIT-style random-order masked AR, over continuous tokens, with a small per-token diffusion head as the loss. No VQ.
   - Hybrids in which an AR model conditions a diffusion decoder.
 - **vs diffusion:** diffusion refines all latents in parallel over many steps and is strong on continuous perceptual quality. AR takes one forward pass per token, has a KV cache, and handles interleaved text + image naturally.
 
 ### Q6.15 FID, IS, KID, precision/recall, CLIP score: definitions and caveats?
-- **FID** (Heusel et al. 2017): fit Gaussians to Inception-v3 pool features (2048-d) of real and generated sets: $\mathrm{FID} = \|\mu_r - \mu_g\|_2^2 + \mathrm{Tr}\big(\Sigma_r + \Sigma_g - 2(\Sigma_r\Sigma_g)^{1/2}\big)$. Lower is better. Captures fidelity and diversity jointly.
+- **FID** (Heusel et al. 2017): fit Gaussians to Inception-v3 pool features (2048-d) of real and generated sets and report the **squared** Fréchet (2-Wasserstein) distance between them: $\mathrm{FID} = \|\mu_r - \mu_g\|_2^2 + \mathrm{Tr}\big(\Sigma_r + \Sigma_g - 2(\Sigma_r\Sigma_g)^{1/2}\big)$. Lower is better. Captures fidelity and diversity jointly. Compute $\mathrm{Tr}(\Sigma_r\Sigma_g)^{1/2}$ from the eigenvalues of the symmetric $\Sigma_r^{1/2}\Sigma_g\Sigma_r^{1/2}$, in float64.
 - **FID caveats:**
-  - Biased in sample size, so compare at equal $N$ (usually 50k).
+  - The estimator is biased upward, by roughly $c/N$ with a model-dependent $c$ (Chong & Forsyth 2020), so FIDs at different $N$ are not comparable and model rankings can change with $N$. Compare at equal $N$ (usually 50k) against the same reference statistics, or extrapolate to FID∞.
   - Sensitive to resizing and JPEG implementation details (use clean-fid).
   - ImageNet-trained features: domain mismatch for faces or medical images, and the metric is gameable by matching ImageNet class statistics.
-  - Gaussian assumption.
+  - Gaussian assumption (only first and second moments are compared).
+  - Blind to memorization: copying the training set scores very well.
   - One number can't separate fidelity from diversity.
   - Alternatives: Fréchet distance on DINOv2 features, KID, CMMD (CLIP + MMD).
 - **IS** (Salimans et al. 2016): $\exp\left(\mathbb E_x\,\mathrm{KL}(p(y \mid x)\,\|\,p(y))\right)$. High when each sample is confidently classified *and* classes are diverse. Never compares with real data, is blind to intra-class diversity, and is tied to ImageNet classes.
-- **KID:** unbiased MMD with a cubic polynomial kernel; better for small $N$.
+- **KID** (Bińkowski et al. 2018): an unbiased estimate of squared MMD with the cubic polynomial kernel $k(x, y) = (x^\top y/d + 1)^3$ on the same Inception features. No Gaussian assumption and no $N$-dependent bias, so it suits small $N$ (it is noisier, and can come out slightly negative).
 - **Precision/recall** (Kynkäänniemi et al. 2019): k-NN balls in feature space approximate each manifold. *Precision* = fraction of generated samples inside the real manifold (fidelity). *Recall* = fraction of real samples inside the generated manifold (coverage).
 - **Text-to-image:**
-  - **CLIP score:** cosine similarity of image and prompt embeddings. CLIPScore (Hessel et al. 2021) is $2.5\cdot\max(\cos, 0)$; many T2I papers report $100\cdot\cos$, so check the convention.
-  - Compositional benchmarks (GenEval, T2I-CompBench), VQA-based checks (TIFA, DSG), preference models (PickScore, ImageReward, HPSv2), and **human side-by-side** evaluation (the gold standard).
+  - **CLIP score:** cosine similarity of image and prompt embeddings. CLIPScore (Hessel et al. 2021) is $2.5\cdot\max(\cos, 0)$; many T2I papers report $100\cdot\cos$, so check the convention. CLIP is weak at counting, spatial relations and attribute binding, so CLIP score misses exactly the compositional errors that matter.
+  - Compositional benchmarks (GenEval, T2I-CompBench), VQA-based checks (TIFA, DSG), preference models (PickScore, ImageReward, HPSv2), and **human side-by-side** evaluation (the gold standard). See Q6.21.
 - → practice: v4/generative/fid
 
 ### Q6.16 Likelihood vs sample quality: why can they disagree?
@@ -1101,13 +1160,62 @@ For Applied MLE, Research Scientist and Research Engineer loops. 119 questions i
 - **ControlNet** (Zhang, Rao & Agrawala 2023): a trainable copy of the encoder blocks takes spatial conditions (edges, depth, pose) and connects to the frozen model through **zero-initialized convolutions**, so training starts from the unchanged model.
 - **IP-Adapter:** image prompts via decoupled cross-attention.
 - **Training-free:** SDEdit (noise an input to level $t$, then denoise), inpainting, DDIM-inversion-based editing, attention-map editing (prompt-to-prompt).
-- **Preference tuning:** Diffusion-DPO, or reward fine-tuning against aesthetic or preference models.
+- **Preference tuning:** Diffusion-DPO, or reward fine-tuning against aesthetic or preference models (Q6.20).
+
+### Q6.19 How do you get 1–4-step sampling? Consistency models and distillation.
+- **Goal:** replace a 20–50-step ODE solve (Q6.8) with 1–4 network evaluations while keeping most of the quality.
+- **Consistency models** (Song, Dhariwal, Chen & Sutskever, ICML 2023, "Consistency Models"):
+  - Learn $f_\theta(x_t, t)$ that maps *every* point of a probability-flow ODE trajectory to that trajectory's origin, so $f_\theta(x_t, t) = f_\theta(x_{t'}, t')$ along it (self-consistency).
+  - The boundary condition $f_\theta(x, \epsilon) = x$ is built into the parameterization $f_\theta = c_{skip}(t)\,x + c_{out}(t)\,F_\theta(x, t)$, with $c_{skip}(\epsilon) = 1$ and $c_{out}(\epsilon) = 0$.
+  - **Consistency distillation (CD):** take one ODE-solver step with a pretrained diffusion teacher from $x_{t_{n+1}}$ to $\hat x_{t_n}$, then minimize $d\big(f_\theta(x_{t_{n+1}}, t_{n+1}),\ f_{\theta^-}(\hat x_{t_n}, t_n)\big)$. Here $\theta^-$ is an EMA, stop-gradient copy, and $d$ is L2 or LPIPS (pseudo-Huber in later work).
+  - **Consistency training (CT):** no teacher. Use $x + t_{n+1}z$ and $x + t_nz$ with the same $z$ in place of the solver step.
+  - **Sampling:** one step, $\hat x_0 = f_\theta(x_T, T)$; or multistep: re-noise the output to a smaller $t$ and apply $f_\theta$ again, trading compute for quality.
+  - The original paper reports one-step FID 3.55 on CIFAR-10 and 6.20 on ImageNet 64 (CD). Later training recipes (iCT; continuous-time sCM) narrowed the gap to multi-step diffusion.
+- **LCM** (Luo et al. 2023, "Latent Consistency Models"): consistency distillation in SD's latent space with the CFG scale folded into the teacher's ODE, so the 2–4 sampling steps need no separate unconditional pass. LCM-LoRA packages it as an adapter.
+- **Other families:**
+  - **Progressive distillation** (Salimans & Ho 2022): a student matches two teacher steps with one; repeat to halve the step count each round. This is where v-prediction came from, because ε-pred is unstable at few steps.
+  - **Adversarial:** ADD / SDXL-Turbo (Sauer et al. 2023) and LADD add a GAN loss so that 1–4-step samples stay sharp.
+  - **Distribution matching:** DMD (Yin et al. 2024) pushes a one-step generator's output distribution toward the teacher's, using the difference between the teacher's score and a "fake" score fit to the student's samples.
+  - **Straighter paths:** rectified-flow reflow (e.g. InstaFlow), so that one Euler step is accurate.
+- **Trade-offs:** 1-step samples lose some diversity and fine detail (adversarial losses are mode-seeking); every new base model needs another distillation run; and guidance or editing tricks designed for multi-step samplers may not carry over.
+- → practice: v4/generative/flow-matching (watch quality vs Euler step count), v3/modern-architectures/ddim-cfg
+
+### Q6.20 How do you align a diffusion model with human preferences or rewards?
+- **Why:** pretraining matches the training distribution, not what users want (aesthetics, prompt following, legible text). It is the same gap that RLHF closes for LLMs (Q7.4).
+- **Reward signals:**
+  - Preference models trained on pairwise human choices: PickScore, ImageReward, HPSv2.
+  - Aesthetic predictors.
+  - Programmatic checks: detector- or VQA-based prompt alignment (GenEval-style counts, colors, positions), or OCR accuracy for text rendering.
+- **Three method families:**
+  1. **RL on the sampling chain.** DDPO (Black et al. 2023) treats the denoising steps as an MDP. Each step is a Gaussian with a tractable log-probability, so policy gradients (REINFORCE, or PPO-style clipped importance ratios) apply, with the final image's reward. DPOK (Fan et al. 2023) adds a KL penalty to the pretrained model. Flow-GRPO (Liu et al. 2025) brings GRPO to flow-matching models by replacing the deterministic ODE sampler with an SDE that has the same marginals, which supplies the randomness RL needs.
+  2. **Direct reward backpropagation.** ReFL (from the ImageReward paper), DRaFT and AlignProp backpropagate a differentiable reward through the last one or few sampling steps (or all of them, with checkpointing). Sample-efficient but memory-hungry, and the quickest to reward-hack.
+  3. **Offline preference optimization.** Diffusion-DPO (Wallace et al. 2024) replaces the intractable image log-likelihood in DPO with the ELBO, so the loss compares per-step denoising errors: relative to the frozen reference, the model should improve more on the preferred image than on the rejected one. They fine-tuned SDXL on Pick-a-Pic (851K pairs). There is no reward model and no sampling during training.
+- **Pitfalls:**
+  - Reward hacking: oversaturated, over-smoothed or same-looking images that score well. Counter with a KL or reference penalty, early stopping and several rewards.
+  - Diversity collapse onto the reward model's favorite style.
+  - **Evaluate with a different metric (and humans) than the one you optimized.**
+- → practice: v3/alignment-training/dpo, v3/alignment-training/grpo (the same losses in the LLM setting)
+
+### Q6.21 How would you evaluate a text-to-image model?
+- **Measure separate axes:** image quality and realism, text–image alignment, diversity, safety and bias, and cost (steps, latency). CFG scale and step count move all of them, so report both and sweep them (e.g. FID vs CLIP-score curves).
+- **Distribution metrics:** FID (or FD on DINOv2 features) on a fixed caption set, classically zero-shot MS-COCO 30k, plus precision/recall. COCO FID rewards matching COCO's photo style, not what people prefer: in the Pick-a-Pic study (Kirstain et al. 2023), ranking models by COCO FID even anti-correlated with human preference.
+- **Alignment metrics:**
+  - **CLIPScore:** cheap, but CLIP often behaves like a bag of words (weak on counting, spatial relations, attribute binding and negation), and it saturates for strong models.
+  - **GenEval** (Ghosh et al. 2023): templated prompts whose images an object detector checks for objects, counts, colors, positions and attribute binding. T2I-CompBench is similar.
+  - **VQA-based:** TIFA and DSG have an LLM turn the prompt into questions that a VQA model answers. VQAScore (Lin et al. 2024) is the probability that a VLM answers "yes" to "Does this figure show '{prompt}'?".
+  - **Learned preference scores:** PickScore, ImageReward, HPSv2. Closest to human taste, but gameable, especially if you also trained against them.
+- **Human evaluation (the final word):**
+  - Side-by-side against a baseline on a fixed prompt set (PartiPrompts, DrawBench, plus your product's prompts).
+  - Ask about alignment and quality separately, randomize left/right order, and use several raters per item.
+  - Report inter-rater agreement and win rates with confidence intervals, or Elo / Bradley–Terry ratings across many models.
+- **Hygiene:** fixed seeds and prompts; slice by prompt category (text rendering, people, counting); check memorization against nearest training neighbors; never report the reward you optimized as your headline metric.
+- → practice: v4/generative/fid
 
 > **Say it in one breath**
-> - VAE: ELBO = reconstruction − KL(q‖prior); the reparameterization trick gives pathwise gradients; collapse and blur are the classic failure modes. GAN: $D^\star = p_d/(p_d + p_g)$ gives JSD; use the non-saturating G loss; WGAN-GP or spectral norm address vanishing gradients and mode collapse.
+> - VAE: ELBO = reconstruction − KL(q‖prior); the reparameterization trick gives pathwise gradients; collapse and blur are the classic failure modes. GAN: $D^\star = p_d/(p_d + p_g)$ gives JSD; use the non-saturating G loss; WGAN-GP or spectral norm help with vanishing gradients and instability (mode collapse is reduced, not solved).
 > - DDPM: $x_t = \sqrt{\bar\alpha_t}x_0 + \sqrt{1 - \bar\alpha_t}\epsilon$, train with MSE on ε, sample ancestrally. DDIM uses the same model with a deterministic ODE sampler and far fewer steps. CFG: $\epsilon_\varnothing + w(\epsilon_c - \epsilon_\varnothing)$ trades diversity for fidelity.
 > - Modern stack: a latent autoencoder ($f = 8$), a DiT backbone with adaLN-Zero, and a flow-matching / rectified-flow objective (velocity = data − noise along straight paths), distilled for few-step sampling.
-> - Evaluate with FID (Inception Fréchet distance; sample-size and implementation sensitive), precision/recall to separate fidelity from coverage, CLIP score for alignment, and humans as the final judge. Likelihood ≠ sample quality.
+> - Evaluate with FID (squared Fréchet distance between Gaussians fit to Inception features; biased upward at small $N$ and implementation sensitive), precision/recall to separate fidelity from coverage, CLIP score plus compositional checks (GenEval, VQA-based) for alignment, and humans as the final judge. Likelihood ≠ sample quality. Few-step sampling comes from consistency, adversarial or distribution-matching distillation; preference tuning uses DDPO-style RL, reward backprop or Diffusion-DPO.
 
 ---
 
@@ -1135,9 +1243,9 @@ For Applied MLE, Research Scientist and Research Engineer loops. 119 questions i
 - **Chinchilla** (Hoffmann et al. 2022, "Training Compute-Optimal Large Language Models"):
   - For a fixed budget, scale $N$ and $D$ roughly *equally*: $N_{opt} \propto C^{\approx 0.5}$ and $D_{opt} \propto C^{\approx 0.5}$, which gives **about 20 training tokens per parameter**.
   - Chinchilla (70B params, 1.4T tokens) beat Gopher (280B, 300B tokens) at similar compute.
-  - Kaplan had recommended growing $N$ faster. The gap is usually attributed to, e.g., not matching the LR schedule to run length and to non-embedding parameter counts at small scale.
+  - Kaplan had recommended growing $N$ much faster ($N_{opt} \propto C^{0.73}$, $D_{opt} \propto C^{0.27}$). Hoffmann et al. blamed Kaplan's fixed LR schedule (not matched to run length); later analyses add counting only non-embedding parameters at small scale (Pearce & Song 2024) and last-layer FLOPs, warmup and optimizer tuning (Porian et al. 2024).
 - **Fitted form:** $L(N, D) = E + \frac{A}{N^\alpha} + \frac{B}{D^\beta}$ (Chinchilla's fit: $\alpha \approx 0.34$, $\beta \approx 0.28$).
-- **Exact constants are debated:** a 2024 replication (Besiroglu et al.) found problems with one of the three fitting approaches. Treat "20" as a rule of thumb.
+- **Exact constants are debated:** a 2024 replication (Besiroglu et al.) found that the parametric fit (Approach 3) was inconsistent with the other two approaches; their refit agrees with them. The ratio also depends on data quality, tokenizer and architecture. Treat "20" as a rule of thumb.
 - **In practice models are over-trained** past Chinchilla-optimal, e.g. Llama 3 8B on about 15T tokens (≈1,900 tokens/param), because *inference* cost favors smaller models trained longer.
 - Vision has similar laws: ViT scaling (Zhai et al. 2022, "Scaling Vision Transformers"), CLIP scaling (Cherti et al. 2023), DiT quality vs GFLOPs.
 
@@ -1172,7 +1280,7 @@ For Applied MLE, Research Scientist and Research Engineer loops. 119 questions i
   - The forward pass is $h = Wx + \frac{\alpha}{r}BAx$. Because $B = 0$, training starts exactly at the pretrained model.
   - Trainable params are $r(d + k)$ instead of $dk$. For $d = k = 4096$, $r = 16$: 131K vs 16.8M (≈0.8%). Optimizer state shrinks with it.
 - **Inference:** merge $W + \frac{\alpha}{r}BA$ for zero extra latency, or keep adapters separate and hot-swap them.
-- **Where to apply:** the original paper used $W_q$ and $W_v$; applying it to all linear layers, including the MLP, usually works better. The rationale is that fine-tuning updates have low intrinsic rank.
+- **Where to apply:** the original paper used $W_q$ and $W_v$; applying it to all linear layers, including the MLP, usually works better. The motivating hypothesis is that fine-tuning updates have low intrinsic rank; it holds well for light adaptation, while LoRA can lag full fine-tuning on large-scale code and math training (Biderman et al. 2024, "LoRA Learns Less and Forgets Less").
 - **QLoRA** (Dettmers et al. 2023): a 4-bit NF4 base model, double quantization of the scales and paged optimizers, with bf16 LoRA on top. Fine-tunes a 65B model on one 48 GB GPU.
 - **In vision and generative work:** LoRA for SD/DiT style and subject tuning, and for ViT/VLM adaptation. Variants include DoRA.
 - → practice: v3/alignment-training/lora
@@ -1248,7 +1356,7 @@ For Applied MLE, Research Scientist and Research Engineer loops. 119 questions i
 - **Cost:** about one extra forward pass, roughly **+33% compute** (forward ≈ 1/3 of forward + backward) for full recompute.
 - **Memory:** goes from $O(L)$ to about $O(\sqrt L)$ with $\sqrt L$ segments (Chen et al. 2016, "Training Deep Nets with Sublinear Memory Cost").
 - **Selective recomputation** (Korthikanti et al. 2022): recompute only the memory-heavy but cheap parts (attention softmax and dropout) to get most of the savings for a few percent of compute. FlashAttention already avoids storing $n\times n$.
-- **MFU accounting:** MFU excludes recompute, so checkpointing lowers MFU but not HFU.
+- **MFU accounting:** MFU does not count recompute FLOPs, so checkpointing lowers MFU (longer steps, same useful FLOPs), while HFU, which counts them, stays roughly flat.
 - → practice: v3/alignment-training/gradient-checkpointing
 
 ### Q8.5 How much GPU memory does training a model need?
@@ -1283,8 +1391,9 @@ For Applied MLE, Research Scientist and Research Engineer loops. 119 questions i
 ### Q8.8 Compute-bound vs memory-bound: what is arithmetic intensity?
 - **Arithmetic intensity (AI)** = FLOPs / bytes moved to or from memory.
 - **Roofline:** attainable FLOP/s = $\min(\text{peak FLOP/s},\ \text{AI}\times\text{bandwidth})$. The ridge point is peak / bandwidth:
-  - A100: 312 TFLOP/s bf16 / about 2 TB/s ≈ 150 FLOP/B.
-  - H100 SXM: 989 / 3.35 TB/s ≈ 300 FLOP/B.
+  - A100 SXM 80 GB: 312 TFLOP/s dense bf16 / about 2.0 TB/s ≈ 150 FLOP/B.
+  - H100 SXM: 989 TFLOP/s dense bf16 / 3.35 TB/s ≈ 300 FLOP/B (about 600 for dense fp8).
+  - NVIDIA datasheets often headline the 2:4-sparsity figures, which are 2× the dense ones.
 - **Matmul** $(m\times k)(k\times n)$ in bf16: $2mkn$ FLOPs over about $2(mk + kn + mn)$ bytes.
   - Big square matmuls are compute-bound.
   - Batch-1 decoding ($m = 1$) has **AI ≈ 1 FLOP/B** (2 FLOPs per 2-byte weight), so it is extremely memory-bound. AI grows about linearly with batch size, which is why batching helps decode.
@@ -1300,8 +1409,8 @@ For Applied MLE, Research Scientist and Research Engineer loops. 119 questions i
 - **Quantization:** int8/int4 weights for memory-bound decode; fp8 compute.
 - **Speculative decoding** (Leviathan et al. 2023; Chen et al. 2023):
   - A cheap draft model proposes $\gamma$ tokens, and the target scores them all in one forward pass.
-  - Accept token $x$ with probability $\min(1, p(x)/q(x))$. On the first rejection, resample from $\mathrm{norm}(\max(0, p - q))$.
-  - The output distribution is **exactly** the target's. Speedup depends on the acceptance rate and the draft's cost.
+  - Accept token $x$ with probability $\min(1, p(x)/q(x))$. On the first rejection, resample from $\mathrm{norm}(\max(0, p - q))$ and discard the rest. If all $\gamma$ are accepted, sample one bonus token from the target's last distribution, so each target pass yields 1 to $\gamma + 1$ tokens.
+  - The output distribution is **exactly** the target's. With per-token acceptance rate $\alpha$ (assumed i.i.d.), the expected tokens per target pass are $\frac{1 - \alpha^{\gamma+1}}{1 - \alpha}$; the wall-clock speedup also depends on the draft's cost. It pays off when decoding is memory-bound (small batches) and shrinks at large batch sizes.
   - Variants: Medusa heads, EAGLE, prompt-lookup / n-gram drafts.
 - **Smaller models:** distillation (Q8.10).
 - **Kernels and runtime:** FlashAttention/FlashDecoding, fused ops, `torch.compile`, CUDA graphs; serving stacks such as vLLM, TensorRT-LLM and SGLang; tensor parallelism to cut latency.
@@ -1318,14 +1427,14 @@ For Applied MLE, Research Scientist and Research Engineer loops. 119 questions i
   - DeiT's distillation token.
   - Sequence-level KD for LMs (train on teacher generations) and on-policy distillation.
   - Distilling CLIP or DINOv2 into small ViTs.
-- Remember Q2.10: LS-trained teachers distill worse.
+- Remember Q2.10: Müller et al. (2019) found that teachers trained with label smoothing distill worse. Later work disputes how general this is.
 - → practice: v3/modern-architectures/knowledge-distillation
 
 ### Q8.11 How do you make diffusion sampling fast?
-- **Fewer steps, no retraining:** better solvers such as DDIM, DPM-Solver++, UniPC and Heun (EDM); 20–50 steps instead of 1000.
+- **Fewer steps, no retraining:** better solvers such as DDIM, DPM-Solver++, UniPC and Heun (EDM); about 10–50 steps instead of 1000 (higher-order solvers hold up better at the low end).
 - **Step distillation:**
   - Progressive distillation repeatedly halves the steps.
-  - Consistency models and LCM map any point on the ODE trajectory to its origin, giving 1–4 steps.
+  - Consistency models and LCM map any point on the ODE trajectory to its origin, giving 1–4 steps (Q6.19). DMD-style distribution matching goes to 1 step.
   - Adversarial diffusion distillation (SDXL-Turbo) adds a GAN loss for 1–4 step sampling.
   - Rectified-flow reflow.
 - **Cheaper steps:**
@@ -1460,15 +1569,17 @@ For Applied MLE, Research Scientist and Research Engineer loops. 119 questions i
 |---|---|
 | Initial loss, balanced $K$-way softmax | $\ln K$ (2.30 for 10, 6.91 for 1000) |
 | Adam defaults | $\beta_1 = 0.9$, $\beta_2 = 0.999$ (LLMs: 0.95), $\epsilon = 10^{-8}$ |
-| fp16 | max 65504; min normal ≈ $6.1\times10^{-5}$; 5 exp / 10 mantissa bits |
-| bf16 | 8 exp / 7 mantissa bits, fp32 range, no loss scaling |
+| fp16 | max 65504; min normal ≈ $6.1\times10^{-5}$ (min subnormal ≈ $6\times10^{-8}$); 5 exp / 10 mantissa bits |
+| bf16 | 8 exp / 7 mantissa bits, fp32 range, loss scaling usually unnecessary |
 | Mixed-precision Adam memory | 16 bytes/param (7B ≈ 112 GB) |
 | Inference weights | 2 B/param bf16; 1 B int8; 0.5 B int4 |
 | Training / inference FLOPs | $6ND$ / $2N$ per token |
 | Chinchilla | ≈ 20 tokens/param (rule of thumb; constants debated) |
 | KV cache | $2\cdot L\cdot n_{kv}\cdot d_h\cdot$ bytes per token; Llama-2-7B fp16 ≈ 0.5 MiB/token |
-| A100 | 312 TFLOP/s bf16 dense; ≈ 2 TB/s HBM (80 GB) |
-| H100 SXM | ≈ 989 TFLOP/s bf16 dense; 3.35 TB/s HBM3 |
+| A100 | 312 TFLOP/s bf16 dense (624 with 2:4 sparsity); 19.5 fp32 (non-tensor-core); ≈ 2.0 TB/s HBM2e (80 GB SXM; 40 GB: 1.6 TB/s) |
+| H100 SXM | ≈ 989 TFLOP/s bf16 dense, ≈ 1979 fp8 dense (datasheet headlines are 2× with sparsity); 80 GB, 3.35 TB/s HBM3 |
+| Roofline ridge point (dense bf16) | A100 ≈ 150 FLOP/B; H100 SXM ≈ 300 FLOP/B; batch-1 decode AI ≈ 1 |
+| MFU | ≈ 35–55% for well-tuned large LLM runs (PaLM 540B: 46.2%) |
 | Ring all-reduce per-GPU traffic | $2\frac{N-1}{N}S$ |
 | Activation checkpointing | ≈ +33% compute |
 | Conv output size | $\lfloor (I + 2P - D(K-1) - 1)/S \rfloor + 1$ |
@@ -1483,7 +1594,8 @@ For Applied MLE, Research Scientist and Research Engineer loops. 119 questions i
 | DDPM | $T = 1000$, $\beta$ linear $10^{-4}\to0.02$ |
 | Cosine schedule offset | $s = 0.008$ |
 | SD1.x latent | $f = 8$, 64×64×4 for 512², scale 0.18215 |
-| DiT-XL/2 | FID 2.27 (ImageNet 256², class-conditional, CFG) |
+| DiT-XL/2 | FID 2.27 (ImageNet 256², class-conditional, CFG scale 1.5) |
+| CFG scale | SD default 7.5 in the "$w = 1$ is conditional" convention; train with 10–20% condition dropout |
 | VQ-VAE commitment | $\beta = 0.25$ |
 | WGAN-GP | $\lambda = 10$ |
 | Test-set accuracy std | $\sqrt{p(1-p)/n}$ (0.8 on 10k ≈ ±0.4%) |
