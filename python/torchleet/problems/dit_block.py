@@ -17,6 +17,10 @@ Graded behaviourally, so nn.MultiheadAttention and hand-written attention both p
   equals softmax(Q K^T / sqrt(head_dim)) V with the block's own projection weights
   for num_heads heads (located from nn.MultiheadAttention, a fused Linear(D, 3D),
   or separate q/k/v Linear(D, D) layers).
+* MLP: with its Linears set to pass hidden units straight through, the MLP branch must
+  return GELU(approximate="tanh") of its input (so F.gelu without approximate fails too).
+* timestep_embedding: exactly cat([cos, sin]) with frequencies exp(-ln P * i / half);
+  the [sin, cos] and / (half - 1) variants are diagnosed.
 * patchify uses the MAE / DiT layout: row-major patches, features ordered
   (row-in-patch, col-in-patch, channel); unpatchify is its exact inverse.
 """
@@ -225,16 +229,23 @@ def check_timestep_frequency_embedding(ns):
     assert tuple(got.shape) == (5, 64), \
         f"timestep_embedding(t, 64) for 5 timesteps must be (5, 64), got {tuple(got.shape)}"
     refs = _freq_refs(t, 64)
-    match = [k for k, r in refs.items() if torch.allclose(got.double(), r, atol=5e-4)]
-    assert match, (
-        "timestep_embedding should be the DiT sinusoidal features: freqs = "
-        "exp(-ln(max_period) * arange(half) / half), args = t[:, None] * freqs, "
-        "emb = cat([cos(args), sin(args)], -1) (fractional t allowed)")
+    want_key = "[cos, sin] /half"                 # the layout the notebook specifies (DiT's)
+    if not torch.allclose(got.double(), refs[want_key], atol=5e-4):
+        near = [k for k, r in refs.items() if torch.allclose(got.double(), r, atol=5e-4)]
+        why = ""
+        if near and near[0].startswith("[sin, cos]"):
+            why = " Yours puts sin first; DiT's layout is cat([cos, sin]) (it matters when loading weights)."
+        if near and near[0].endswith("/(half-1)"):
+            why += " Your frequencies divide by half - 1 (the DDPM variant); DiT divides by half."
+        raise AssertionError(
+            "timestep_embedding should be the DiT sinusoidal features: freqs = "
+            "exp(-ln(max_period) * arange(half) / half), args = t[:, None] * freqs, "
+            "emb = cat([cos(args), sin(args)], -1) (fractional t allowed)." + why)
     try:
         got = emb(t, 16, max_period=100)
     except TypeError:
         raise AssertionError("timestep_embedding must accept max_period (default 10000)")
-    want = _freq_refs(t, 16, max_period=100)[match[0]]
+    want = _freq_refs(t, 16, max_period=100)[want_key]
     assert torch.allclose(got.double(), want, atol=5e-4), \
         "max_period=100 must change the frequency range to exp(-ln(100) * i / half)"
     ints = emb(torch.tensor([3, 7]), 32)
@@ -410,6 +421,42 @@ def check_attention_is_multi_head_softmax_attention(ns):
         "second and third D outputs)")
 
 
+def check_mlp_is_linear_gelu_tanh_linear(ns):
+    """MLP branch alone with its two Linears set to pass D hidden units straight through:
+    out - x then reads the activation itself at D known points (works for nn.GELU and F.gelu)."""
+    blk = _block(ns)
+    hid = 4 * D
+    lins = [m for m in blk.modules() if isinstance(m, nn.Linear)]
+    fc1 = [m for m in lins if (m.in_features, m.out_features) == (D, hid)]
+    fc2 = [m for m in lins if (m.in_features, m.out_features) == (hid, D)]
+    if len(fc1) != 1 or len(fc2) != 1:
+        raise Skip("could not locate the MLP's Linear(D, 4D) and Linear(4D, D); "
+                   "its activation was not verified")
+    s = torch.linspace(-4.0, 4.0, D)
+    _set_bias(blk, (0, 0, 0, s, -1, 1))          # MLP input = modulate(LN(x), s, -1) = s
+    with torch.no_grad():
+        for lin in (fc1[0], fc2[0]):
+            lin.weight.zero_()
+            lin.weight[:D, :D] = torch.eye(D)      # hidden_j = s_j, out_i = act(hidden_i)
+            if lin.bias is not None:
+                lin.bias.zero_()
+        x, c = _inputs(seed=11)
+        d = _run(blk, x, c) - x
+    want = F.gelu(s, approximate="tanh").expand_as(d)
+    if torch.allclose(d, want, atol=1e-5):
+        return
+    for name, f in (("the exact (erf) GELU", lambda v: F.gelu(v)), ("ReLU", F.relu),
+                    ("SiLU", F.silu), ("no activation", lambda v: v)):
+        if torch.allclose(d, f(s).expand_as(d), atol=1e-5):
+            raise AssertionError(
+                f"the MLP uses {name}; DiT's MLP is Linear -> GELU(approximate='tanh') -> Linear "
+                f"(nn.GELU(approximate='tanh') or F.gelu(..., approximate='tanh'))")
+    raise AssertionError(
+        "with gate_mlp = 1 the MLP branch should add Linear2(GELU_tanh(Linear1(modulate(norm2(x), "
+        "shift_mlp, scale_mlp)))) to x; it does not (checked by feeding a constant input through "
+        f"identity-like Linear weights, max diff {(d - want).abs().max():.3e})")
+
+
 def check_permutation_equivariance_over_tokens(ns):
     blk = _block(ns)
     _randomize(blk, seed=7)
@@ -519,6 +566,7 @@ CHECKS = [
     check_both_branches_are_pre_norm,
     check_attention_mixes_tokens_within_a_sample_only,
     check_attention_is_multi_head_softmax_attention,
+    check_mlp_is_linear_gelu_tanh_linear,
     check_permutation_equivariance_over_tokens,
     check_gradients_reach_every_parameter,
     check_structure_mlp_ratio_norms_and_gelu,

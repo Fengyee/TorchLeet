@@ -123,7 +123,10 @@ def check_mixup_lambda_follows_beta(ns):
 
     l1 = lams(1.0)
     m, ext = l1.mean().item(), ((l1 < 0.1) | (l1 > 0.9)).float().mean().item()
-    assert 0.43 <= m <= 0.57 and 0.10 <= ext <= 0.32, (
+    # 200 draws: std of the mean ~0.020, of the edge fraction ~0.028. These bounds are
+    # ~5 sigma, so a correct sampler fails < 1e-5 of the time (the old 0.43..0.57 /
+    # 0.10..0.32 failed ~6e-4), while max(lam, 1 - lam) (mean ~0.75) is still rejected.
+    assert 0.40 <= m <= 0.60 and 0.08 <= ext <= 0.34, (
         f"with alpha=1, Beta(1, 1) is Uniform(0, 1): expected mean ~0.5 and ~20% of lam "
         f"outside [0.1, 0.9], got mean {m:.3f} and {ext:.0%}")
     l02 = lams(0.2)

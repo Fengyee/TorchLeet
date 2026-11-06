@@ -9,7 +9,8 @@ Checks, all on tiny configurations so they run in a few seconds on CPU:
   activation, rescale) is applied after it; the time embedding is per sample;
 - UNet: output shape equals input shape across resolutions and depths; time
   conditioning changes the output; samples in a batch are independent in train
-  mode (BatchNorm fails this, GroupNorm passes); every parameter gets a
+  mode (BatchNorm fails this, GroupNorm passes; the global seed is reset before each
+  forward so dropout, an allowed extra, draws identical masks); every parameter gets a
   gradient; encoder features are concatenated (not added) along channels at
   every resolution above the bottleneck, seen by a TorchFunctionMode that
   watches torch.cat; and it can overfit one tiny batch.
@@ -165,8 +166,13 @@ def check_resblock_time_embedding_is_per_sample(ns):
     ta = torch.randn(2, 8)
     tb = ta.clone()
     tb[1] = torch.randn(8) * 3
+    # Same seed before each call: any dropout (an allowed extra) then draws the same mask
+    # both times, so only a real cross-sample interaction can change sample 0.
     with torch.no_grad():
-        a, b = blk(x, ta), blk(x, tb)
+        torch.manual_seed(1)
+        a = blk(x, ta)
+        torch.manual_seed(1)
+        b = blk(x, tb)
     assert (a[1] - b[1]).abs().max().item() > 1e-4, \
         "changing a sample's time embedding did not change its output — is the time projection added?"
     assert (a[0] - b[0]).abs().max().item() <= 1e-6, (
@@ -213,7 +219,10 @@ def check_unet_samples_are_independent(ns):
     m.train()
     torch.manual_seed(3)
     a, b, c = torch.randn(3, 1, 3, 8, 8).unbind(0)
+    # Re-seed before each forward so dropout (allowed) uses identical masks in both calls.
+    torch.manual_seed(4)
     out1 = m(torch.cat([a, b]), torch.tensor([10, 500]))
+    torch.manual_seed(4)
     out2 = m(torch.cat([a, c]), torch.tensor([10, 90]))
     diff = (out1[0] - out2[0]).abs().max().item()
     assert diff <= 1e-5, (

@@ -249,8 +249,10 @@ def check_loss_samples_standard_normal_noise_and_uniform_time(ns):
     assert abs(mean) < 0.06 and abs(std - 1) < 0.06, (
         f"recovered x0 = (x_t - t x1) / (1 - t) has mean {mean:.3f}, std {std:.3f}; it "
         f"should be standard normal noise — use torch.randn_like(x1), not torch.rand_like")
+    # ~3600 kept rows: the sample correlation of independent draws has std ~0.017, so
+    # 0.1 is ~6 sigma (0.06 was 3.6 sigma: ~1 in 2000 correct implementations failed).
     c = torch.corrcoef(torch.stack([x0[:, 0], x1[keep, 0]]))[0, 1]
-    assert abs(float(c)) < 0.06, \
+    assert abs(float(c)) < 0.1, \
         f"x0 must be fresh noise independent of x1, but corr(x0, x1) = {float(c):.3f}"
 
 
@@ -357,7 +359,10 @@ def _train_and_sample(ns):
         xs = ns.euler_sample(model, x0, 20)
     mean, std = xs.mean(0), xs.std(0)
     assert torch.isfinite(xs).all(), "samples contain NaN/Inf"
-    assert torch.allclose(mean, target_mean, atol=0.15) and torch.allclose(std, target_std, atol=0.12), (
+    # Correct implementations differ in how they consume the RNG; over ~650 such runs the
+    # worst errors were 0.144 (mean) and 0.099 (std), so these bounds leave real headroom
+    # while a wrong noise scale or target is still off by > 0.3.
+    assert torch.allclose(mean, target_mean, atol=0.25) and torch.allclose(std, target_std, atol=0.16), (
         f"after training on N(mean={target_mean.tolist()}, std={target_std.tolist()}), 20 Euler "
         f"steps from N(0, I) gave mean {[round(v, 3) for v in mean.tolist()]}, std "
         f"{[round(v, 3) for v in std.tolist()]} — the loss or the sampler is off")
