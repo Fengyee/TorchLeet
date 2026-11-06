@@ -71,6 +71,7 @@ For Applied MLE, Research Scientist and Research Engineer loops. 126 questions i
   - CE gives the clean $\partial L/\partial z = p - y$.
   - CE is also convex in $w$ for logistic regression; MSE-on-sigmoid is not.
 - Binary CE is the Bernoulli NLL. MSE is the Gaussian NLL with fixed variance.
+- **Why `CrossEntropyLoss` takes logits, not probabilities** (a common follow-up): it fuses log-softmax and NLL, $\log p_y = z_y - \mathrm{logsumexp}(z)$ computed with max-subtraction, so it never takes the log of a probability that underflowed to 0 (float32 `exp` underflows about 104 below the max), and its gradient is simply $\mathrm{softmax}(z) - \mathrm{onehot}(y)$. Feeding softmax outputs applies softmax twice: the "logits" are confined to $[0, 1]$, so the loss is bounded away from 0 (at least $\log(1 + (C-1)/e) \approx 1.46$ for $C = 10$) and gradients are weak. It trains, but badly.
 
 ### Q1.6 Derive the logistic-regression gradient.
 - Setup: $p = \sigma(z)$, $z = w^\top x + b$, $L = -[y\log p + (1-y)\log(1-p)]$.
@@ -300,6 +301,7 @@ For Applied MLE, Research Scientist and Research Engineer loops. 126 questions i
 - **Formulas:**
   - Standard norms compute $\hat x = (x - \mu)/\sqrt{\sigma^2 + \epsilon}$, then apply $\gamma\hat x + \beta$.
   - RMSNorm computes $x/\sqrt{\frac1d\sum_i x_i^2 + \epsilon}\cdot g$. It is cheaper and empirically as good (Zhang & Sennrich 2019).
+- **BN statistics, precisely:** in training each channel is normalized with the mini-batch mean and the *biased* variance (divide by $n = N \cdot H \cdot W$), and running estimates are updated as `running = (1 − m)·running + m·batch_stat` with $m = 0.1$ (PyTorch's momentum weights the *new* batch — the opposite of Keras). `running_var` is updated with the *unbiased* variance ($\times\, n/(n-1)$). In eval, BN normalizes with the running estimates and updates nothing. Mixing these conventions is a classic porting bug.
 - **BN pitfalls:**
   - Noisy statistics with small batches.
   - Train/eval discrepancy; forgetting `model.eval()` is a classic bug.
@@ -482,6 +484,7 @@ For Applied MLE, Research Scientist and Research Engineer loops. 126 questions i
   - Soft-NMS decays scores by IoU instead of deleting boxes.
   - You must choose class-aware or class-agnostic NMS.
   - DETR-style models avoid NMS entirely.
+- **Why NMS is non-differentiable:** it is a hard, discrete post-processing step (sort, then keep/drop by a thresholded IoU comparison). Its output, a set of indices, is piecewise constant in the scores and coordinates, so the gradient is zero almost everywhere and undefined at the switch points — no learning signal reaches duplicate removal. Detectors are therefore trained one-to-many (several anchors/queries per object are positives) and rely on a heuristic the loss never sees. DETR instead trains one-to-one with Hungarian matching, so duplicates are penalized by the loss itself (Q3.22).
 - **IoU losses:** GIoU $= \mathrm{IoU} - \frac{|C \setminus (A\cup B)|}{|C|}$, where $C$ is the smallest enclosing box; it gives gradients even without overlap. DIoU and CIoU add center-distance and aspect-ratio terms.
 - → practice: v4/vision/iou-nms
 
@@ -583,7 +586,7 @@ For Applied MLE, Research Scientist and Research Engineer loops. 126 questions i
 ### Q3.18 Explain MAE. Why mask 75%?
 - (He et al. 2022, "Masked Autoencoders Are Scalable Vision Learners")
   - Randomly mask 75% of patches.
-  - The ViT encoder sees **only the visible 25%**, which makes pretraining 3× or more faster.
+  - The ViT encoder sees **only the visible 25%**. Two reasons (MAE's mask-token ablation, Table 1c, ViT-L): *compute* — the encoder processes a quarter of the tokens, cutting training FLOPs 3.3× (2.8–4.1× wall-clock); and *accuracy* — [MASK] tokens never occur in real images, so an encoder that sees them in pretraining has a pretrain–deploy input gap (putting mask tokens in the encoder dropped linear probing from 73.5 to 59.6 and fine-tuning from 84.9 to 84.2).
   - A lightweight decoder takes the encoded tokens plus mask tokens (with positions) and reconstructs pixels.
   - The loss is MSE on masked patches only, with per-patch normalized pixel targets.
 - **Why such a high ratio:** images are spatially redundant. At low ratios the task is solvable by interpolation; 75% forces holistic, semantic reasoning.
@@ -684,10 +687,10 @@ For Applied MLE, Research Scientist and Research Engineer loops. 126 questions i
 ### Q4.4 Causal vs padding masks; what can go wrong?
 - **Causal:** position $i$ attends only to $j \le i$. Add $-\infty$ (in practice a large negative) to the upper triangle before softmax. This allows parallel teacher-forced training of autoregressive models.
 - **Padding (key) mask:** in a batch of variable-length sequences, mask pad *keys*. Outputs at pad *query* positions are garbage and are dropped in the loss (`ignore_index`).
-- Combine both into one additive mask broadcast to $(B, h, n, n)$.
+- Combine both as **boolean** masks (`allowed = causal & key_not_pad`, broadcast to $(B, h, n, n)$), then fill once (`masked_fill(~allowed, finfo.min)`) or pass the bool mask to SDPA. Adding two additive masks of `finfo(dtype).min` overflows to $-\infty$ and brings the NaN back.
 - **Pitfalls:**
   - A fully masked row makes softmax of all $-\infty$ = NaN.
-  - `-1e9` overflows fp16; use `torch.finfo(dtype).min`.
+  - `-1e9` overflows fp16; use `torch.finfo(dtype).min` — and apply it once (see above).
   - Left-pad decoder-only models for batched generation.
   - Boolean-mask conventions differ: in `nn.MultiheadAttention`'s `key_padding_mask`, True means *ignore*; in `F.scaled_dot_product_attention`'s boolean `attn_mask`, True means *attend*.
 - **Other masks:** prefix-LM (bidirectional over the prefix), block-causal (frames or images), Flamingo's "attend only to the latest image" mask.
@@ -781,7 +784,7 @@ For Applied MLE, Research Scientist and Research Engineer loops. 126 questions i
   - An image encoder (ResNet or ViT) and a text transformer, each with a linear projection into a shared space, then L2-normalized.
 - **Loss:** for a batch of $N$ pairs, logits are $L_{ij} = s\,\langle\hat u_i, \hat v_j\rangle$ with learnable $s = e^{t}$ (the inverse temperature). The loss is **symmetric cross-entropy** with the diagonal as targets: $\frac12[\mathrm{CE}_{\text{rows}} + \mathrm{CE}_{\text{cols}}]$. Each image must pick its own caption out of $N$, and each caption its own image. This is InfoNCE.
 - **Temperature:**
-  - Initialized to $\tau = 0.07$ ($s \approx 14.3$) and learned in log-space.
+  - Initialized to $\tau = 0.07$ ($s \approx 14.3$) and learned in log-space — learned so that it need not be tuned as a hyperparameter (the paper's stated reason).
   - **Clipped so $s \le 100$** for stability.
   - Cosine similarities live in $[-1, 1]$, so without scaling the softmax would be far too flat. Lower $\tau$ sharpens the distribution and focuses on hard negatives; too low is unstable.
 - **Scale:** batch size 32,768 for many negatives. In distributed training, all-gather the embeddings across GPUs (gradients flow through the local shard).
@@ -1081,6 +1084,7 @@ For Applied MLE, Research Scientist and Research Engineer loops. 126 questions i
 - **DiT** (Peebles & Xie 2023, "Scalable Diffusion Models with Transformers"):
   - Patchify the latent: a 32×32×4 latent with $p = 2$ gives 256 tokens. Then standard ViT blocks.
   - **adaLN-Zero** conditioning: an MLP on (timestep + class) regresses a per-block scale $\gamma$, shift $\beta$ and residual gate $\alpha$. The gate is initialized to 0, so every block starts as identity.
+  - **Why adaLN-Zero rather than cross-attention:** DiT's condition is one global vector (timestep + class). Peebles & Xie ablated in-context tokens, cross-attention, adaLN and adaLN-Zero: adaLN-Zero had the best FID and is the cheapest (cross-attention added ~15% Gflops). It modulates every token at negligible cost, and the zero-initialized gate makes each block start as the identity, which stabilizes training. Cross-attention pays off when the condition is a *sequence* (text) — see below; even SD3/Flux still feed the timestep and pooled text embedding through adaLN.
   - Quality improves predictably with GFLOPs (depth, width or smaller patches). DiT-XL/2 reached FID 2.27 on class-conditional ImageNet 256² with CFG.
 - **Why transformers won at scale:** LLM-like scaling, shared infrastructure (FlashAttention, parallelism) and easy multimodal token mixing.
 - **Text conditioning in DiTs:** cross-attention (PixArt-α), or joint attention over concatenated text + image tokens with modality-specific weights (MM-DiT in SD3; Flux).
@@ -1095,6 +1099,7 @@ For Applied MLE, Research Scientist and Research Engineer loops. 126 questions i
   - Minimize $\mathbb E\,\|v_\theta(x_t, t) - (x_1 - x_0)\|^2$.
 - **Why it's simulation-free:** training never integrates the ODE. It works because regressing on the per-pair *conditional* velocity has the same gradient as regressing on the intractable *marginal* velocity field (Lipman et al.), so the optimum is the marginal field $\mathbb E[x_1 - x_0 \mid x_t]$ and the loss does not go to zero.
 - **Sampling:** integrate from $t = 0$ to 1, e.g. Euler $x_{t+\Delta t} = x_t + \Delta t\,v_\theta(x_t, t)$. The paths are straighter than typical diffusion paths, so fewer steps are needed. **Reflow** (retraining on the model's own noise→sample couplings) straightens them further toward 1-step.
+- **Why straight means fewer steps:** an ODE solver's per-step error grows with how fast the velocity changes along the step (Euler's local error ≈ $\tfrac{\Delta t^2}{2}\|\ddot x\|$). On a straight path traversed at constant speed the velocity is constant, so even one Euler step is exact. Diffusion's probability-flow ODE under typical schedules is more curved, so it needs more steps or higher-order solvers.
 - Not perfectly straight, though: the per-pair straight lines cross each other. The learned *marginal* flow averages them, and ODE trajectories cannot cross, so its paths are curved. Reflow reduces that curvature.
 - **Relation to diffusion:** Gaussian diffusion is also a flow, along curved paths. The two are equivalent up to schedule and loss weighting, and flow matching with a Gaussian source ≈ diffusion with a particular schedule and a v-like target.
 - **Conventions differ:** SD3 (Esser et al. 2024, "Scaling Rectified Flow Transformers for High-Resolution Image Synthesis") writes $z_t = (1 - t)\,x_{data} + t\,\epsilon$, i.e. $t = 1$ is noise, so its velocity target $\epsilon - x_{data}$ has the opposite sign and sampling runs from $t = 1$ to 0. It samples $t$ from a logit-normal to emphasize mid-range times. Flux also uses rectified flow.

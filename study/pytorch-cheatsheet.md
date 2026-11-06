@@ -180,7 +180,7 @@ assert x.sum(dim=-1, keepdim=True).shape == (2, 1)  # keepdim -> result broadcas
 x.amax(dim=(0, 1))                       # multi-dim max (x.max(dim) takes one dim and returns (values, indices))
 x.mean(-1); x.norm(dim=-1)
 x.var(-1)                                # UNBIASED (N-1) by default
-x.var(-1, correction=0)                  # biased (N), what LayerNorm/BatchNorm use
+x.var(-1, correction=0)                  # biased (N): what LayerNorm/BatchNorm normalize with (BN's running_var stores the UNBIASED one)
 ```
 
 ---
@@ -284,7 +284,7 @@ assert torch.allclose(torch.einsum("...d,de->...e", q, torch.eye(Dh)), q)
 
 Gotchas
 - A letter that appears in inputs but not in the output is **summed**. Letters are single characters.
-- `einsum` is great for clarity in interviews. For hot paths, `@`/`bmm` is at least as fast.
+- `einsum` is great for clarity in interviews. It lowers to the same `bmm` (plus permutes/reshapes), so speed is usually comparable to `@`. With 3+ operands the contraction order matters; torch picks it with `opt_einsum` when that package is installed.
 
 ---
 
@@ -512,11 +512,15 @@ neg = torch.finfo(scores.dtype).min
 p_b = scores.masked_fill(~keep, neg).softmax(-1).masked_fill(~keep, 0.0)
 assert torch.allclose(p_a, p_b) and p_b[1].sum() == 0
 # Fix C: guarantee >= 1 valid key per query (causal masks always allow the diagonal)
+
+h_min = torch.finfo(torch.float16).min                                    # -65504
+assert torch.isinf(torch.tensor(h_min, dtype=torch.float16) + h_min)      # two ADDITIVE finfo.min masks -> -inf
+assert torch.isinf(torch.tensor(-16., dtype=torch.float16) + h_min)       # fp16: score <= -16 also overflows
 ```
 
 Gotchas
-- **Additive** masks with `finfo.min` can overflow: `score + finfo.min` becomes `-inf` when the score is negative, which brings back the NaN. `masked_fill` *replaces* the value, so it is safe. `-1e9` overflows to `-inf` in fp16 (max 65504). Use `-1e4` or `finfo(dtype).min`.
-- In torch 2.15 (verified on CPU), `F.scaled_dot_product_attention` returns **0** for a fully masked row. A hand-written softmax returns **NaN**.
+- **Additive** masks with `finfo.min` can overflow to `-inf`. Adding two such masks (e.g. causal + padding) always does. In fp16, `score + finfo.min` also does for any score ≤ −16; fp32/bf16 have enough headroom for ordinary scores. A row that ends up all `-inf` brings back the NaN. `masked_fill` *replaces* the value, so it is safe: combine boolean masks with `&` and fill once. `-1e9` overflows to `-inf` in fp16 (max 65504). Use `-1e4` or `finfo(dtype).min`.
+- In torch 2.15 (verified on CPU), `F.scaled_dot_product_attention` returns **0** for a fully masked row. A hand-written softmax returns **NaN**. Older releases returned NaN from SDPA too, so don't rely on this: guarantee a valid key or zero those rows yourself.
 
 ### float16 vs bfloat16 vs float32
 
@@ -669,7 +673,7 @@ with torch.no_grad():      # fix for init/manual updates: no_grad; for model cod
 Gotchas
 - To find the culprit, `torch.autograd.set_detect_anomaly(True)` prints the forward op whose output was modified. See §13.
 - `nn.ReLU(inplace=True)` right after an op that saves its *output* (sigmoid, tanh, softmax, `exp`) breaks backward. After conv/linear it is fine.
-- Avoid `.data`: it bypasses version tracking and silently gives wrong grads. Use `.detach()` or `no_grad`.
+- Avoid `.data`: it bypasses version tracking, so an in-place change can silently give wrong grads. Use `.detach()` or `no_grad`.
 
 ---
 
@@ -734,7 +738,7 @@ assert pe(torch.randn(2, 10, 8)).shape == (2, 10, 8)
 ```python
 def init_weights(m):
     if isinstance(m, nn.Linear):
-        nn.init.trunc_normal_(m.weight, std=0.02)          # GPT/ViT style
+        nn.init.trunc_normal_(m.weight, std=0.02)          # GPT/ViT style. a,b default to ±2 ABSOLUTE (not ±2σ): no-op cut at std=0.02
         if m.bias is not None:
             nn.init.zeros_(m.bias)
     elif isinstance(m, nn.Conv2d):
@@ -757,7 +761,7 @@ with torch.no_grad():                        # manual tweaks to params need no_g
 |---|---|---|
 | `Dropout` | zeroes with prob p, scales kept units by `1/(1-p)` | identity |
 | `BatchNorm` | normalizes with batch stats, **updates** running stats | uses running stats |
-| everything else | same | same |
+| most other layers (Linear, Conv, LayerNorm, GroupNorm) | same | same |
 
 `eval()` does **not** disable autograd, so pair it with `torch.no_grad()`/`inference_mode()`. Both are recursive and set `module.training`.
 
@@ -778,7 +782,7 @@ model = MLP(8, 16, 3)
 torch.save(model.state_dict(), "mlp.pt")
 sd = torch.load("mlp.pt", map_location="cpu", weights_only=True)   # weights_only=True is the default since 2.6
 model2 = MLP(8, 16, 3, n_layers=3)                                 # different architecture
-res = model2.load_state_dict(sd, strict=False)                     # returns (missing_keys, unexpected_keys)
+res = model2.load_state_dict(sd, strict=False)                     # returns (missing_keys, unexpected_keys); SHAPE mismatches still raise
 print("missing:", res.missing_keys, "unexpected:", res.unexpected_keys)
 sd_ddp = {"module." + k: v for k, v in sd.items()}                 # DDP adds "module.", compile adds "_orig_mod."
 model.load_state_dict({k.removeprefix("module."): v for k, v in sd_ddp.items()})
@@ -799,7 +803,7 @@ n_train = sum(p.numel() for p in model.parameters() if p.requires_grad)
 assert n_total == (8 * 16 + 16) + (16 * 16 + 16) + (16 * 3 + 3) and n_train == 16 * 3 + 3
 ```
 
-Parameter-count mental math: `Linear(i,o)` = `i·o + o`; `Conv2d(ci,co,k)` = `co·ci·k² + co`; `Embedding(V,D)` = `V·D`; `LayerNorm(D)` = `2D`; `MultiheadAttention(D)` = `4D² + 4D`; transformer block ≈ `12D²`.
+Parameter-count mental math: `Linear(i,o)` = `i·o + o`; `Conv2d(ci,co,k)` = `co·ci·k² + co`; `Embedding(V,D)` = `V·D`; `LayerNorm(D)` = `2D`; `MultiheadAttention(D)` = `4D² + 4D`; transformer block ≈ `12D²` (`4D²` attention + `8D²` for a 4×-wide MLP, ignoring biases and norms).
 
 ### Hooks: capture activations / gradients
 
@@ -962,7 +966,7 @@ loss.backward()                             # backward OUTSIDE autocast; params 
 opt.step(); opt.zero_grad(set_to_none=True)
 
 # fp16 (V100/T4 era): needs GradScaler. enabled=False makes it a transparent no-op (CPU here)
-scaler = torch.amp.GradScaler("cuda", enabled=use_cuda)
+scaler = torch.amp.GradScaler("cuda", enabled=use_cuda)   # torch.cuda.amp.GradScaler/autocast: deprecated aliases
 with torch.autocast(device_type=dev, dtype=torch.float16, enabled=use_cuda):   # GPU-only when enabled
     loss = F.cross_entropy(model(xb), yb)
 scaler.scale(loss).backward()               # multiply loss by S so small grads don't underflow
@@ -999,7 +1003,8 @@ def seed_everything(seed: int):
     random.seed(seed); np.random.seed(seed)
     torch.manual_seed(seed)                  # seeds CPU and all CUDA devices
 
-def seed_worker(worker_id):                  # DataLoader workers: reseed numpy/random per worker
+def seed_worker(worker_id):                  # docs recipe. Since 1.9 workers already seed random/numpy/torch themselves;
+                                             # this matters for other RNG libraries (or old torch)
     s = torch.initial_seed() % 2**32
     np.random.seed(s); random.seed(s)
 
@@ -1008,7 +1013,8 @@ g = torch.Generator().manual_seed(0)         # controls shuffle order independen
 loader = DataLoader(TensorDataset(torch.arange(10.)), batch_size=5, shuffle=True,
                     generator=g, worker_init_fn=seed_worker)
 
-torch.use_deterministic_algorithms(True)     # raises on known-nondeterministic ops (e.g. some CUDA scatter_add/index_add)
+torch.use_deterministic_algorithms(True)     # swaps in deterministic kernels where they exist (CUDA scatter_add_/index_add_);
+                                             # raises where none exists (e.g. CUDA backward of bilinear interpolate)
 torch.backends.cudnn.benchmark = False       # benchmark=True picks fastest (possibly nondeterministic) conv algos
 # GPU: also set env CUBLAS_WORKSPACE_CONFIG=:4096:8 before CUDA init
 torch.use_deterministic_algorithms(False)
@@ -1063,7 +1069,7 @@ def collate(batch):                                       # batch: list of (seq 
 loader = DataLoader(data, batch_size=4, collate_fn=collate)   # any indexable list works as a dataset
 padded, mask, labels = next(iter(loader))
 assert padded.shape == (4, 7) and mask.sum().item() == 17
-left = pad_sequence(list(seqs), batch_first=True, padding_side="left")   # (2.6+) for decoder-only generation
+left = pad_sequence(list(seqs), batch_first=True, padding_side="left")   # (2.5+) for decoder-only generation
 mean_pooled = (padded.float() * mask).sum(1) / mask.sum(1)               # masked mean over time
 ```
 
@@ -1231,6 +1237,7 @@ down = F.interpolate(torch.randn(1, 3, 64, 64), size=(16, 16), mode="bilinear",
                      antialias=True, align_corners=False)     # antialias when downsampling (PIL-like)
 masks = torch.randint(0, 5, (1, 1, 8, 8)).float()
 F.interpolate(masks, scale_factor=4, mode="nearest")          # labels/masks: nearest, never bilinear
+F.interpolate(masks, size=(5, 5), mode="nearest-exact")       # "nearest" copies OpenCV's (shifted) INTER_NEAREST; "nearest-exact" matches PIL/skimage
 ```
 
 ### `F.grid_sample` / `F.affine_grid`
@@ -1346,7 +1353,7 @@ o_ok = F.scaled_dot_product_attention(q1, k5, v5, attn_mask=causal_lower_right(1
 assert torch.allclose(o_ok, F.scaled_dot_product_attention(q1, k5, v5), atol=1e-6)   # sees all 5 keys
 ```
 
-Fused SDPA backends (flash / mem-efficient) are picked on GPU. A boolean or float `attn_mask` can rule out the flash kernel; `is_causal=True` without a mask keeps it.
+SDPA dispatches to fused kernels: flash / memory-efficient / cuDNN on CUDA, and a fused flash-style kernel on CPU. On CUDA an explicit `attn_mask` (bool or float) rules out the flash kernel (the memory-efficient one accepts it); `is_causal=True` without a mask keeps it.
 
 ---
 
@@ -1399,7 +1406,7 @@ torchrun --nproc_per_node=8 train.py
 # in train.py: dist.init_process_group("nccl"); local_rank = int(os.environ["LOCAL_RANK"]); torch.cuda.set_device(local_rank)
 ```
 
-DDP checklist: use a `DistributedSampler` and call `set_epoch`. Convert BN with `nn.SyncBatchNorm.convert_sync_batchnorm(model)` if per-GPU batches are small. Set `find_unused_parameters=True` only if some params get no grad. Use `no_sync()` for grad accumulation. Use FSDP2 (`torch.distributed.fsdp.fully_shard`) when params plus optimizer state don't fit on one GPU.
+DDP checklist: use a `DistributedSampler` and call `set_epoch`. Convert BN with `nn.SyncBatchNorm.convert_sync_batchnorm(model)` if per-GPU batches are small. Set `find_unused_parameters=True` only if some params get no grad. Use `no_sync()` for grad accumulation. Use FSDP2 (`torch.distributed.fsdp.fully_shard`) when params + grads + optimizer state don't fit on one GPU.
 
 ```python
 model = nn.Sequential(nn.Linear(64, 256), nn.GELU(), nn.Linear(256, 64))
@@ -1409,7 +1416,7 @@ torch.testing.assert_close(cmodel(xin), model(xin), atol=1e-5, rtol=1e-5)   # 1s
 assert list(cmodel.state_dict())[0].startswith("_orig_mod.")   # save model.state_dict() (the original), not cmodel's
 ```
 
-`torch.compile` pays off when there are many small elementwise/normalization ops to fuse, shapes are stable, and the run is long (training, serving). It doesn't help, or costs time, for one-off scripts, highly dynamic shapes (recompiles, so try `dynamic=True`), or Python control flow on tensor values (graph breaks). Most interview code should stay eager.
+`torch.compile` pays off when there are many small elementwise/normalization ops to fuse, shapes are stable, and the run is long (training, serving). It doesn't help, or costs time, for one-off scripts, for Python control flow on tensor values (graph breaks), or for shapes that change on every call. By default the first shape change triggers one recompile with that dim marked dynamic; after `torch._dynamo.config.recompile_limit` (8) recompiles the function falls back to eager. Pass `dynamic=True` or call `torch._dynamo.mark_dynamic(x, dim)` when you know a dim varies. Most interview code should stay eager.
 
 ---
 
@@ -1435,7 +1442,7 @@ assert list(cmodel.state_dict())[0].startswith("_orig_mod.")   # save model.stat
 | 16 | `squeeze()` without dim kills the batch dim when `B == 1` | `squeeze(-1)` |
 | 17 | `(N,1)` prediction vs `(N,)` target broadcasts to `(N,N)` (MSE only warns) | match shapes: `pred.squeeze(-1)` |
 | 18 | in-place op on a tensor saved for backward (`relu_`, `+=`, `x[mask] = 0`) | out-of-place; `set_detect_anomaly` to locate |
-| 19 | `BatchNorm` with batch size 1 in train mode raises "Expected more than 1 value per channel" | `drop_last=True`, `GroupNorm`/`LayerNorm`, or eval mode |
+| 19 | `BatchNorm` in train mode with one value per channel (`BatchNorm1d` on a `(1, C)` batch) raises "Expected more than 1 value per channel". `BatchNorm2d` with `B=1` runs, but on one image's (noisy) statistics | `drop_last=True`, `GroupNorm`/`LayerNorm`, or eval mode |
 | 20 | optimizer created, then modules/params replaced (new head, tying, `.half()` with overwrite, FSDP wrap) → optimizer updates orphans | move/modify the model **first**, then build the optimizer |
 | 21 | forgot `zero_grad()`: grads accumulate across steps | `opt.zero_grad(set_to_none=True)` each step |
 | 22 | `torch.randn(..., requires_grad=True) * 0.01` is a non-leaf → `.grad` is None | `nn.Parameter(torch.randn(...) * 0.01)` |
@@ -1443,16 +1450,16 @@ assert list(cmodel.state_dict())[0].startswith("_orig_mod.")   # save model.stat
 | 24 | `x.to(device)` is not in place for tensors | `x = x.to(device)` |
 | 25 | tensors created in `forward` land on CPU (`torch.zeros(B, D)`) → device mismatch | `torch.zeros(B, D, device=x.device, dtype=x.dtype)`, `x.new_zeros`, `*_like`, or a buffer |
 | 26 | `F.dropout(x, p)` defaults to `training=True`: still active in eval | `F.dropout(x, p, training=self.training)` or `nn.Dropout` |
-| 27 | `x.var()`/`std()` are unbiased (N−1); LayerNorm/BN use biased | `correction=0` |
+| 27 | `x.var()`/`std()` are unbiased (N−1); LayerNorm/BN normalize with the biased one, but BN's `running_var` stores the unbiased one | `correction=0` |
 | 28 | `F.kl_div(input, target)`: `input` must be **log**-probs of Q, target = P; computes KL(P‖Q); `"mean"` divides by numel | `F.kl_div(logQ, P, reduction="batchmean")` |
-| 29 | `nn.MultiheadAttention`/`nn.LSTM`/`nn.GRU` default to `batch_first=False` `(T,B,D)`; MHA `key_padding_mask` True = **ignore**, SDPA bool mask True = **attend** | pass `batch_first=True`; invert masks carefully |
+| 29 | `nn.MultiheadAttention`/`nn.LSTM`/`nn.GRU` default to `batch_first=False` `(T,B,D)`; MHA `key_padding_mask` and bool `attn_mask`: True = **ignore**; SDPA bool mask: True = **attend** | pass `batch_first=True`; invert masks carefully |
 | 30 | `-inf` masking with fully masked rows → NaN; `-1e9` overflows fp16 | see §4: `nan_to_num`, `finfo.min` with `masked_fill` |
 | 31 | `x[idx] += 1` with duplicate indices adds once | `index_add_`, `index_put_(..., accumulate=True)`, `scatter_add_` |
-| 32 | `torch.load` defaults to `weights_only=True` (2.6+): full checkpoints with numpy/RNG objects fail | `weights_only=False` for **trusted** files, or store only tensors/primitives |
+| 32 | `torch.load` defaults to `weights_only=True` (2.6+): full checkpoints with numpy/RNG objects fail | `weights_only=False` for **trusted** files, allowlist types with `torch.serialization.add_safe_globals`, or store only tensors/primitives |
 | 33 | AMP fp16: clipping scaled grads, or forgetting `scaler.update()` | `scaler.unscale_(opt)` → clip → `scaler.step(opt)` → `scaler.update()` |
 | 34 | `scheduler.step()` per epoch vs per step mixed up; called before `opt.step()` (warning) | decide the unit; call it after `opt.step()` |
-| 35 | `torch.tensor(t)` on an existing tensor (copy + warning); `.item()` on a multi-element tensor errors | `t.clone().detach()`; `.tolist()` |
-| 36 | `Embedding` indices must be integer; `labels` from numpy are often int32/float | `.long()` |
+| 35 | `torch.tensor(t)` on an existing tensor (copy + warning); `.item()` on a multi-element tensor errors | `t.detach().clone()`; `.tolist()` |
+| 36 | `Embedding` indices must be int32/int64; class-index targets of `cross_entropy`/`nll_loss` must be int64 (int32 raises "expected target dtype to be Long"); labels from numpy are often int32/float | `.long()` |
 | 37 | `model.parameters()` is a generator, so it's empty the 2nd time you iterate it | `params = list(model.parameters())` |
 | 38 | interpolating label maps with `bilinear` invents classes; train/infer `align_corners` mismatch | `mode="nearest"` for labels; keep `align_corners` consistent |
 
@@ -1482,6 +1489,15 @@ try:
     nn.BatchNorm1d(4).train()(torch.randn(1, 4))                                                # 19
 except ValueError as e:
     print("BN:", str(e)[:45])
+nn.BatchNorm2d(4).train()(torch.randn(1, 4, 5, 5))                                              # 19: runs (25 values/channel)
+
+bn1 = nn.BatchNorm1d(1, momentum=1.0).train(); xs = torch.randn(10, 1); bn1(xs)                 # 27
+assert torch.allclose(bn1.running_var, xs.var(0))                                               # unbiased (N-1)
+
+try:
+    F.cross_entropy(logits, y.int())                                                            # 36
+except RuntimeError as e:
+    print("CE int32:", str(e)[:50])
 
 model = nn.Sequential(nn.Linear(4, 4), nn.Linear(4, 2))                                         # 20
 opt = torch.optim.SGD(model.parameters(), lr=0.1)
@@ -1546,7 +1562,7 @@ for h in hs:
 per_param = {n: p.grad.norm().item() for n, p in model.named_parameters() if p.grad is not None}
 total = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=float("inf"))   # total norm, no clipping
 print({k: round(v, 3) for k, v in per_param.items()}, "total:", round(total.item(), 3))
-# Healthy signs: loss finite, grad norm not exploding/vanishing, update/weight ratio ~1e-3 per step
+# Healthy signs: loss finite, grad norm not exploding/vanishing, update/weight ratio ~1e-3 per step (rule of thumb)
 ```
 
 ### Overfit one batch (the first sanity check)
@@ -1608,4 +1624,4 @@ print(f"manual {time_it(lambda: a @ b) * 1e6:.1f} us")
 #                  torch.cuda.synchronize(); start.elapsed_time(end)  # ms
 ```
 
-Memory back-of-envelope for training with AdamW: about **16 bytes/param** of model state either way — fp32 training is weights 4 + grads 4 + Adam m 4 + v 4, and bf16/fp16 mixed precision is bf16 weights 2 + bf16 grads 2 + fp32 master weights 4 + m 4 + v 4 (the ZeRO paper's 2 + 2 + 12). Implementations that keep fp32 grads, or extra copies, cost more. Activations scale with `B·T·D·layers` and usually dominate. To cut them: activation checkpointing (`torch.utils.checkpoint.checkpoint(block, x, use_reentrant=False)`), a smaller micro-batch with grad accumulation, or bf16.
+Memory back-of-envelope for training with AdamW: about **16 bytes/param** of model state either way — fp32 training is weights 4 + grads 4 + Adam m 4 + v 4, and bf16/fp16 mixed precision is bf16 weights 2 + bf16 grads 2 + fp32 master weights 4 + m 4 + v 4 (the ZeRO paper's 2 + 2 + 12). Implementations that keep fp32 grads, or extra copies, cost more. Activations scale with `B·T·D·layers` (plus `B·H·T²` per layer for attention scores without a fused kernel) and often dominate at large batch × sequence length. To cut them: activation checkpointing (`torch.utils.checkpoint.checkpoint(block, x, use_reentrant=False)`), a smaller micro-batch with grad accumulation, or bf16.

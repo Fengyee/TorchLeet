@@ -128,7 +128,7 @@ status()                         # 本机已通过的题
 | | 🟡 `v4/multimodal/vector-search` | 60m | 精确 top-k（分块）+ IVF；recall@k |
 | | breadth §3 CNN & vision（后半：检测/分割/自监督） | 30m | |
 | D13 | **System design**：案例 a 视觉搜索 + 案例 d 图文检索 | 2h | 先自己 35 分钟写完整方案，再对照文档 |
-| | 🟡 `llm/Rotary-Positional-Embedding` | 45m | 相对位置性质 q_m·k_n 只依赖 m−n |
+| | 🟡 `llm/Rotary-Positional-Embedding` | 45m | 相对位置性质：⟨R_m q, R_n k⟩ = ⟨q, R_{n−m} k⟩，位置只以 n−m 的形式出现 |
 | D14 | 复盘 + 重写卡住的题 | 2h | |
 
 **W2 自测**：
@@ -147,11 +147,11 @@ status()                         # 本机已通过的题
 | | 🔴 `torch/hard/GAN` | 60m | non-saturating loss、D 步骤 detach |
 | | breadth §6 生成模型（VAE/GAN 部分） | 30m | |
 | | 🟢 `v4/generative/fid` | 30m | 矩阵平方根的数值稳定写法 |
-| D16 | 🔴 `v3/modern-architectures/ddpm` ⭐ | 90m | 前向加噪闭式解、ε 预测、反向采样均值/方差、t=0 不加噪 |
+| D16 | 🔴 `v3/modern-architectures/ddpm` ⭐ | 90m | 前向加噪闭式解、ε 预测、反向采样均值/方差、最后一步（代码 0-based 的 t=0，论文的 t=1）不加噪 |
 | | 🟡 `v4/vision/unet` | 60m | 时间嵌入注入、skip concat、GroupNorm |
 | | 不看资料，在纸上推一遍 DDPM 的后验 q(x_{t-1}\|x_t,x_0) 和 μ_θ | 30m | RS 面试常让你当场推 |
 | D17 | 🔴 `v3/modern-architectures/ddim-cfg` | 90m | DDIM 确定性更新；CFG 公式与 w 的约定 |
-| | 🟡 `v4/generative/flow-matching` ⭐ | 75m | 线性路径、速度目标 x1−x0、Euler 采样（SD3/Flux 用的就是它） |
+| | 🟡 `v4/generative/flow-matching` ⭐ | 75m | 线性路径、速度目标 x1−x0、Euler 采样（SD3/Flux 也是 rectified flow，但时间方向相反：t=1 是噪声） |
 | D18 | 🔴 `v4/generative/dit-block` | 90m | adaLN-Zero：初始化时 block 为恒等映射 |
 | | 🟡 `v3/modern-architectures/knowledge-distillation` | 45m | T² 缩放、`F.kl_div` 的输入约定 |
 | | breadth §6 生成模型（diffusion/flow 部分） | 30m | |
