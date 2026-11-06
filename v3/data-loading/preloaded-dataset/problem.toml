@@ -6,12 +6,19 @@ frequency = "common"
 category = "data-loading"
 tracks = ["basics"]
 
+# GENERATED from the grader spec — edit python/torchleet/problems/*.py, then run: generate.py hints
+hints = [
+  "A map-style dataset needs exactly two methods besides __init__: __len__ (how many samples) and __getitem__(idx) (one sample). DataLoader does the batching and shuffling by calling them.",
+  "Convert once, in __init__: torch.as_tensor accepts tensors, numpy arrays and lists. Check that X and y have the same number of samples there, and raise if they do not.",
+  "__len__ is the number of rows of X (its first dimension, not the feature count); __getitem__ returns the tuple (self.X[idx], self.y[idx]) — no dict, no batching inside the dataset.",
+]
+
 [notebooks]
 question = "preloaded-dataset.ipynb"
 solution = "preloaded-dataset_SOLN.ipynb"
 
 [grading]
-tier = "C"        # A = auto-graded by check(), C = not graded
-entries = []
+tier = "A"        # A = auto-graded by check(), C = not graded
+entries = ["PreloadedDataset"]
 extras = []
 device = "cpu"

@@ -5,12 +5,19 @@ difficulty = "medium"
 frequency = "emerging"   # very-likely | common | emerging (derived from company reports)
 set = "v2"
 
+# GENERATED from the grader spec — edit python/torchleet/problems/*.py, then run: generate.py hints
+hints = [
+  "Both poolings must ignore padding, and attention_mask (1 = real token, 0 = padding) says where it is. Turn it into a float of shape (batch, seq_len, 1) so it broadcasts against the (batch, seq_len, hidden) states.",
+  "Mean pooling: zero the padded states, sum over the sequence dim, and divide by each row's number of real tokens (the mask summed over seq_len, clamped to at least 1) — not by seq_len. Last-token pooling: find one position per row, then index hidden_states[arange(batch), positions].",
+  "The last real token sits at the last index where the mask is 1. With right padding that is (number of real tokens - 1); with left padding it is always seq_len - 1. seq_len - 1 minus the position of the first 1 in the mask flipped along seq_len covers both (argmax returns the first maximum).",
+]
+
 [notebooks]
 question = "embeddings-q2.ipynb"
-solution = ""   # no separate solution file
+solution = "embeddings-q2_SOLN.ipynb"
 
 [grading]
-tier = "C"        # A = auto-graded by check(), C = not graded
-entries = []
-extras = ["datasets", "transformers"]
+tier = "A"        # A = auto-graded by check(), C = not graded
+entries = ["mean_pool", "last_token_pool"]
+extras = []
 device = "cpu"
