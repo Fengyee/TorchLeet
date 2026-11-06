@@ -137,20 +137,25 @@ def check_box_iou_matches_brute_force(ns):
     b[2] = torch.tensor([5.0, 20, 25, 20])        # zero height
     a[2] = torch.tensor([7.0, 7, 7, 7])           # a single point
     want = _iou_matrix(a, b)
-    for dtype, tol in ((torch.float64, 1e-9), (torch.float32, 1e-5)):
+    for dtype, atol in ((torch.float64, 1e-7), (torch.float32, 1e-5)):
         got = ns.box_iou(a.to(dtype), b.to(dtype))
         assert torch.is_tensor(got) and tuple(got.shape) == (13, 9), \
             f"box_iou((13,4), (9,4)) must return a (13, 9) tensor, got " \
             f"{tuple(got.shape) if torch.is_tensor(got) else type(got).__name__}"
         err = (got.double() - want).abs()
-        wrong = torch.isfinite(err) & (err > tol)
+        # Relative slack as well: inter / (union + eps) with a tiny eps (common in YOLO-style
+        # code) is fine. Every wrong convention is off by far more than 1e-5 relative.
+        wrong = torch.isfinite(err) & (err > atol + 1e-5 * want)
         if wrong.any():
             i, j = divmod(int(torch.where(wrong, err, torch.zeros_like(err)).argmax()), 9)
+            hint = ("Clamp intersection width/height at 0 so disjoint boxes give 0."
+                    if float(want[i, j]) == 0.0 else
+                    "IoU = inter / (area1 + area2 - inter), with areas (x2 - x1) * (y2 - y1) "
+                    "(no '+1 pixel').")
             raise AssertionError(
                 f"box_iou disagrees with a brute-force double loop ({dtype}): "
-                f"boxes {a[i].tolist()} vs {b[j].tolist()} -> expected {float(want[i, j]):.6f}, "
-                f"got {float(got[i, j]):.6f}. Clamp intersection width/height at 0 so disjoint "
-                f"boxes give 0.")
+                f"boxes {a[i].tolist()} vs {b[j].tolist()} -> expected {float(want[i, j]):.8f}, "
+                f"got {float(got[i, j]):.8f}. {hint}")
         if torch.isnan(got).any():
             i, j = divmod(int(torch.isnan(got).flatten().nonzero()[0]), 9)
             raise AssertionError(

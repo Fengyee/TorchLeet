@@ -138,7 +138,7 @@ def check_finite_for_huge_logits(ns):
     val = float(out.detach().reshape(()))
     assert math.isfinite(val), (
         f"loss is {val} with |logits| ~ 1000 — log(sigmoid(x)) underflows to -inf for "
-        f"x < -100 in float32. Use F.logsigmoid (or -F.softplus(-x)).")
+        f"x below about -89 in float32. Use F.logsigmoid (or -F.softplus(-x)).")
     exp = _reference_loop(img, txt, math.log(1000.0), 0.0)
     assert abs(val - exp) <= 1e-4 * max(1.0, abs(exp)), \
         f"with huge logits expected {exp:.3f}, got {val:.3f}"

@@ -8,6 +8,8 @@ Conventions the checks hold the solver to:
   * IVF padding when a query has fewer than k candidates: index -1 and the worst
     possible score (-inf for cosine/dot, +inf for l2), always at the end of the row.
   * IVF ids are global row numbers in the order vectors were add()-ed.
+  * IVF train() runs seeded Lloyd k-means and stores self.centroids; after enough
+    iterations every non-empty centroid is the mean of its cluster (a fixed point).
 
 The oracle is a float64 full sort over the complete score matrix (l2 computed from
 explicit differences, not the expansion). Comparisons are tie-tolerant: an index
@@ -311,12 +313,56 @@ def check_ivf_pads_when_fewer_than_k_candidates(ns):
                 f"{metric}: real results must have finite scores"
 
 
+def check_ivf_kmeans_centroids_are_cluster_means(ns):
+    """After enough Lloyd iterations k-means sits at a fixed point: every non-empty
+    centroid is the mean of the training vectors nearest to it. Random initial rows
+    that are never updated (or one iteration only) are far from that."""
+    for metric in ("l2", "cosine"):
+        for seed in (0, 1):
+            _, _, train = _clustered(seed=10 + seed)
+            index = ns.IVFIndex(8, 1, metric=metric, n_iter=50, seed=seed)
+            index.train(train)
+            cent = getattr(index, "centroids", None)
+            assert torch.is_tensor(cent) and tuple(cent.shape) == (8, train.shape[1]), (
+                f"train() should store the k-means centroids in self.centroids as an "
+                f"(nlist, D) = (8, {train.shape[1]}) tensor")
+            c = cent.detach().double()
+            x = train.double()
+            if metric == "cosine":
+                x = x / x.norm(dim=1, keepdim=True)
+            assign = ((x[:, None, :] - c[None, :, :]) ** 2).sum(-1).argmin(1)
+            for j in range(8):
+                members = assign == j
+                if not bool(members.any()):
+                    continue
+                mean = x[members].mean(0)
+                err = (c[j] - mean).abs().max().item()
+                if metric == "cosine":   # spherical k-means (unit-norm centroids) is fine too
+                    err = min(err, (c[j] - mean / mean.norm()).abs().max().item())
+                assert err <= 1e-3, (
+                    f"metric={metric!r}, n_iter=50: centroid {j} is {err:.3f} away from the mean "
+                    f"of the {int(members.sum())} training vectors nearest to it. After train() "
+                    f"k-means should have converged — each iteration assigns every vector to its "
+                    f"nearest centroid and then MOVES each centroid to its cluster mean, n_iter "
+                    f"times (an empty cluster keeps its centroid).")
+
+
 def check_ivf_deterministic_for_a_seed(ns):
-    q, db, train = _clustered(seed=3)
-    a = _index(ns, 8, 2, "l2", train, [db], seed=7).search(q, 5)
-    b = _index(ns, 8, 2, "l2", train, [db], seed=7).search(q, 5)
-    assert torch.equal(a[1], b[1]), \
-        "two indexes built with the same seed returned different results — seed the k-means init"
+    # Unclustered data and a single Lloyd iteration: the result depends on the initial
+    # centroids, so an init drawn from the global RNG shows up as a difference (on
+    # well-separated clusters different inits often converge to the same partition).
+    q, db = _data(nq=20, n=400, d=8, seed=3)
+    built = []
+    for _ in range(2):
+        index = ns.IVFIndex(16, 2, metric="l2", n_iter=1, seed=7)
+        index.train(db)
+        index.add(db)
+        built.append((index, index.search(q, 5)))
+    (ia, a), (ib, b) = built
+    same_centroids = torch.equal(torch.as_tensor(ia.centroids), torch.as_tensor(ib.centroids))
+    assert same_centroids and torch.equal(a[1], b[1]), (
+        "two indexes built with the same seed gave different centroids or results — draw the "
+        "k-means init from torch.Generator().manual_seed(seed), not from the global RNG")
 
 
 # ------------------------------------------------------------------ recall
@@ -349,6 +395,7 @@ CHECKS = [
     check_ivf_ids_are_database_rows_across_adds,
     check_ivf_recall_non_decreasing_in_nprobe,
     check_ivf_pads_when_fewer_than_k_candidates,
+    check_ivf_kmeans_centroids_are_cluster_means,
     check_ivf_deterministic_for_a_seed,
     check_recall_at_k_known_values,
 ]

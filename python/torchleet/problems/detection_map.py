@@ -13,7 +13,8 @@ Conventions graded here:
     sorted by score across ALL images; each is matched greedily to the
     highest-IoU *still-unmatched* GT of the same class in the same image with
     IoU >= iou_threshold (COCO-style matching and inclusive threshold; the VOC
-    devkit instead takes the max-IoU GT even if matched, and uses IoU > t).
+    devkit instead takes the max-IoU GT even if already matched, and its widely
+    copied Python port voc_eval.py uses IoU > t, while the MATLAB code uses >=).
     Unmatched predictions (incl. duplicates of a matched GT) are false positives.
     Recall denominator = #GT of the class. mAP = mean AP over classes with >= 1 GT;
     classes that only appear in predictions are ignored (absent from the dict).
