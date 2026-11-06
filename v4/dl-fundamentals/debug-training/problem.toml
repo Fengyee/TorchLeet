@@ -1,0 +1,25 @@
+id = "debug-training"
+title = "Debug a Broken Training Pipeline"
+description = "Find and fix 9 silent bugs (data layout, normalisation, model head, training and evaluation loops) in a small image-classification pipeline, reasoning from symptoms to causes."
+difficulty = "medium"
+number = 13
+set = "v4"
+category = "dl-fundamentals"
+tracks = ["basics"]
+
+# GENERATED from the grader spec — edit python/torchleet/problems/*.py, then run: generate.py hints
+hints = [
+  "Debug from symptoms. Look at an image after every transform, print the per-channel mean/std of the normalised training set, and evaluate the same model twice. For each line of the training loop, ask which state it depends on and who resets that state.",
+  "Data side: reshape() never moves axes (only permute/transpose do), and that includes a reshape you use to group values by channel. Model side: what does nn.CrossEntropyLoss apply to its input itself? Loops: what puts a model into train/eval mode, what clears .grad, and what keeps an autograd graph alive?",
+  "There is one bug each in to_tensor, compute_normalization_stats and make_model, none in normalize, and three each in train_one_epoch (mode, gradient reset, loss bookkeeping) and evaluate (mode, autograd, how the predicted class is extracted).",
+]
+
+[notebooks]
+question = "debug-training.ipynb"
+solution = "debug-training_SOLN.ipynb"
+
+[grading]
+tier = "A"        # A=auto-graded B=partial C=not auto-graded
+entries = ["to_tensor", "compute_normalization_stats", "normalize", "make_model", "train_one_epoch", "evaluate"]
+extras = []
+device = "cpu"
