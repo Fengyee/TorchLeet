@@ -1,0 +1,25 @@
+id = "tensor-parallel"
+title = "Megatron-Style Tensor Parallelism (Simulated Ranks)"
+description = "Simulate W tensor-parallel ranks and implement Megatron-LM's column- and row-parallel sharding, the conjugate f/g autograd operators, and a TP MLP and attention block that match the dense model's outputs and gradients with one all-reduce each way."
+difficulty = "hard"
+number = 33
+set = "v4"
+category = "systems"
+tracks = ["advanced"]
+
+# GENERATED from the grader spec — edit python/torchleet/problems/*.py, then run: generate.py hints
+hints = [
+  "Translate Megatron's Y = XA into PyTorch first: nn.Linear stores W = A^T with shape (out, in). Column-parallel = each rank owns a slice of the OUTPUT features (rows of W, dim 0, plus that slice of the bias); row-parallel = each rank owns a slice of the INPUT features (columns of W, dim 1) and produces a partial sum of the full output, so the bias cannot be split.",
+  "f and g are torch.autograd.Functions whose forward takes (ctx, comm, *tensors) and returns a tuple; backward must return one gradient per forward input, so its first value is None (for comm). f: forward passes the W tensors through unchanged, backward makes ONE all-reduce of the W incoming gradients. g: forward makes the one all-reduce, backward passes the W gradients straight through. comm.all_reduce on its own is not differentiable — exactly like NCCL.",
+  "MLP: run f on the inputs; on each rank apply the local column-parallel linear and the activation, then multiply by that rank's row-parallel weight WITHOUT a bias; run g on the W partial sums; add the replicated b2 to each result. Attention: same skeleton — split the local fused projection along its last dim into this rank's q, k, v, view them as n_heads // W heads of size d // n_heads, run causal attention, merge the heads and multiply by the rank's w_o slice. shard_qkv: column-shard W_q, W_k and W_v (and the three bias thirds) separately, then concatenate rank r's three pieces.",
+]
+
+[notebooks]
+question = "tensor-parallel.ipynb"
+solution = "tensor-parallel_SOLN.ipynb"
+
+[grading]
+tier = "A"        # A = auto-graded by check(), C = not graded
+entries = ["shard_column", "shard_row", "shard_qkv", "copy_to_tp", "reduce_from_tp", "tp_mlp_forward", "tp_attention_forward"]
+extras = []
+device = "cpu"
