@@ -3,9 +3,11 @@
 `config_init(name)` returns something you can hand to `Module.apply`, so the
 checks apply it to a throwaway CNN and measure what came out. Nothing is compared
 against a reference implementation: each strategy is defined by the *distribution*
-it produces, and the layers used here are square (fan_in == fan_out == n) so the
-uniform and normal flavours of Xavier and Kaiming have the same standard
-deviation — sqrt(1/n) and sqrt(2/n) respectively, exactly as the problem states.
+it produces (the uniform and normal flavours of Xavier and Kaiming have the same
+standard deviation, so both pass). On square layers (fan_in == fan_out == n) the
+two must give sqrt(1/n) and sqrt(2/n); on non-square layers Xavier must use
+2 / (fan_in + fan_out), which rules out a plain 1/fan_in (LeCun) scale, and
+Kaiming may use either fan_in or fan_out, as He et al. allow.
 """
 import math
 
@@ -20,8 +22,9 @@ HINTS = [
     "it as `model.apply(config_init('xavier'))`.",
     "Each initializer takes one module and should only touch it when it is an "
     "nn.Conv2d or nn.Linear; apply() walks containers and activations too.",
-    "torch.nn.init has all four: zeros_, normal_, xavier_normal_ (variance 1/n) "
-    "and kaiming_normal_ (variance 2/n). Do not forget the bias.",
+    "torch.nn.init has all four: zeros_, normal_, xavier_normal_ (variance "
+    "2/(fan_in + fan_out)) and kaiming_normal_ with nonlinearity='relu' (variance "
+    "2/fan_in). Do not forget the bias.",
 ]
 
 STRATEGIES = ("zeros", "random", "xavier", "kaiming")
@@ -115,6 +118,50 @@ def check_kaiming_scales_by_two_over_n(ns):
     _expect_std(ns, "kaiming", 2.0)
 
 
+class _Rect(nn.Module):
+    """Non-square layers, where fan_in != fan_out tells the formulas apart."""
+
+    def __init__(self):
+        super().__init__()
+        self.conv = nn.Conv2d(16, 64, kernel_size=3)    # fan_in 144, fan_out 576
+        self.fc = nn.Linear(512, 64)                     # fan_in 512, fan_out 64
+
+    def fans(self):
+        return (("conv.weight", self.conv.weight, 16 * 9, 64 * 9),
+                ("fc.weight", self.fc.weight, 512, 64))
+
+
+def _rect_initialised(ns, strategy):
+    torch.manual_seed(0)
+    model = _Rect()
+    model.apply(ns.config_init(strategy))
+    return model
+
+
+def check_xavier_uses_fan_in_plus_fan_out(ns):
+    """Glorot: variance 2 / (fan_in + fan_out), not 1 / fan_in."""
+    model = _rect_initialised(ns, "xavier")
+    for name, w, fan_in, fan_out in model.fans():
+        want = math.sqrt(2.0 / (fan_in + fan_out))
+        std = float(w.detach().std())
+        assert abs(std / want - 1) < 0.06, (
+            f"{name} (fan_in={fan_in}, fan_out={fan_out}) has std {std:.4f} after "
+            f"'xavier'; Glorot's variance 2/(fan_in + fan_out) means std {want:.4f}. "
+            f"1/fan_in alone would give {math.sqrt(1 / fan_in):.4f}")
+
+
+def check_kaiming_uses_one_fan(ns):
+    """He: variance 2 / fan_in (or 2 / fan_out), with the ReLU gain of 2."""
+    model = _rect_initialised(ns, "kaiming")
+    for name, w, fan_in, fan_out in model.fans():
+        std = float(w.detach().std())
+        options = {"fan_in": math.sqrt(2.0 / fan_in), "fan_out": math.sqrt(2.0 / fan_out)}
+        assert any(abs(std / v - 1) < 0.06 for v in options.values()), (
+            f"{name} (fan_in={fan_in}, fan_out={fan_out}) has std {std:.4f} after "
+            f"'kaiming'; variance 2/fan_in means std {options['fan_in']:.4f} "
+            f"(2/fan_out: {options['fan_out']:.4f})")
+
+
 def check_strategies_actually_differ(ns):
     """Four names must not quietly be the same initializer."""
     stds = {}
@@ -133,5 +180,7 @@ CHECKS = [
     check_random_is_a_unit_normal,
     check_xavier_scales_by_one_over_n,
     check_kaiming_scales_by_two_over_n,
+    check_xavier_uses_fan_in_plus_fan_out,
+    check_kaiming_uses_one_fan,
     check_strategies_actually_differ,
 ]

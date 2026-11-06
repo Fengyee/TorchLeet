@@ -4,8 +4,15 @@ The hand-rolled cell is not compared against a reference: gate order, parameter
 layout and initialisation are all free. Instead it is driven two ways that must
 agree — one pass over a whole sequence versus two passes with the returned
 (H, C) threaded between them. Only a genuine recurrence with a correctly carried
-state satisfies that. The gate algebra is pinned separately by the bound
-|H| = |o * tanh(C)| < 1, which fails the moment a sigmoid or tanh is dropped.
+state satisfies that.
+
+The gate algebra is pinned black-box, one timestep at a time, by varying the
+incoming cell state C0 while x and H0 stay fixed. For an LSTM (no peepholes, as
+in nn.LSTM) C1 = f * C0 + i * g is affine in C0 with a slope f in (0, 1), the
+remainder i * g lies in (-1, 1) and takes both signs (g is a tanh), and
+H1 / tanh(C1) = o is a gate in (0, 1) that does not depend on C0. Together with
+|H| < 1 and "the gates read both x and H0", that leaves no room for a dropped
+gate, a sigmoid where a tanh belongs, or a missing recurrence.
 """
 import torch
 import torch.nn as nn
@@ -106,6 +113,93 @@ def check_custom_hidden_state_is_bounded(ns):
         "nonlinearity is missing")
 
 
+def check_custom_default_state_is_zeros(ns):
+    """H_C=None must mean a zero state — not a random one."""
+    m = _custom(ns)
+    m.eval()
+    x = torch.randn(2, SEQ, FEAT)
+    with torch.no_grad():
+        a, _ = _unpack(m(x), "CustomLSTMModel (H_C=None)")
+        b, _ = _unpack(m(x), "CustomLSTMModel (H_C=None)")
+        z, _ = _unpack(m(x, _zero_state(2)), "CustomLSTMModel")
+    assert torch.allclose(a, b, atol=1e-6), (
+        "two calls with H_C=None on the same input disagree — the default initial "
+        "state is random; start from zeros (like nn.LSTM) instead")
+    assert torch.allclose(a, z, atol=1e-5), (
+        "with H_C=None the predictions differ from an explicit all-zero (H, C) — "
+        "the default initial state should be zeros")
+
+
+def _one_step(m, x, h0, c0):
+    with torch.no_grad():
+        _, (h1, c1) = _unpack(m(x, (h0, c0)), "CustomLSTMModel")
+    return h1, c1
+
+
+def _step_probe(ns, batch=16):
+    """One timestep from the same x and H0 but three different C0."""
+    m = _custom(ns)
+    m.eval()
+    torch.manual_seed(1)
+    x = torch.randn(batch, 1, FEAT)
+    h0 = torch.rand(batch, HID) * 1.6 - 0.8
+    c0 = torch.randn(batch, HID)
+    outs = [_one_step(m, x, h0, c0 + d) for d in (0.0, 1.0, -2.0)]
+    return m, x, h0, c0, outs
+
+
+def check_custom_forget_gate_scales_the_old_cell(ns):
+    """C1 = f * C0 + i * g: affine in C0, with a slope f strictly inside (0, 1)."""
+    _, _, _, c0, ((_, ca), (_, cb), (_, cc)) = _step_probe(ns)
+    f1 = cb - ca                 # C0 shifted by +1
+    f2 = (ca - cc) / 2.0         # C0 shifted by -2
+    assert torch.allclose(f1, f2, atol=1e-4), (
+        "the new cell state is not an affine function of the old one — for fixed x "
+        "and H, C_t = f_t * C_{t-1} + i_t * g_t, and no gate may read C_{t-1} "
+        f"(max mismatch {(f1 - f2).abs().max():.2e})")
+    assert float(f1.min()) > -1e-5 and float(f1.max()) < 1 + 1e-5, (
+        f"dC_t/dC_(t-1) ranges over [{float(f1.min()):.3f}, {float(f1.max()):.3f}]; "
+        "it is the forget gate, a sigmoid in (0, 1)")
+    assert not torch.allclose(f1, torch.ones_like(f1), atol=1e-3), (
+        "the old cell state passes through unscaled — the forget gate is missing "
+        "(C_t = f_t * C_(t-1) + i_t * g_t)")
+    rest = ca - f1 * c0           # = i * g
+    assert float(rest.abs().max()) < 1 + 1e-4, (
+        f"C_t - f_t * C_(t-1) reached {float(rest.abs().max()):.3f}; i_t * g_t is a "
+        "sigmoid times a tanh and stays inside (-1, 1)")
+    assert (rest < -1e-3).any() and (rest > 1e-3).any(), (
+        "the write i_t * g_t never changes sign — the candidate g_t should be a "
+        "tanh (values in (-1, 1)), not a sigmoid or ReLU")
+
+
+def check_custom_output_gate_reads_tanh_of_the_cell(ns):
+    """H1 = o * tanh(C1) with o in (0, 1) independent of C0."""
+    _, _, _, _, ((ha, ca), (hb, cb), (hc, cc)) = _step_probe(ns)
+    for h, cell in ((ha, ca), (hb, cb), (hc, cc)):
+        t = torch.tanh(cell)
+        assert float((h * t).min()) >= -1e-6 and bool((h.abs() <= t.abs() + 1e-5).all()), (
+            "H_t is not a (0, 1)-gated copy of tanh(C_t) — expected H_t = o_t * tanh(C_t)")
+    ta, tb, tc = torch.tanh(ca), torch.tanh(cb), torch.tanh(cc)
+    assert torch.allclose(ha * tb, hb * ta, atol=1e-5) and \
+        torch.allclose(ha * tc, hc * ta, atol=1e-5), (
+        "H_t / tanh(C_t) changes when only C_(t-1) changes — the output gate must "
+        "depend on x_t and H_(t-1) only, and H_t = o_t * tanh(C_t)")
+    assert not torch.allclose(ha, ta, atol=1e-4), \
+        "H_t equals tanh(C_t) — the output gate is missing"
+
+
+def check_custom_gates_read_input_and_hidden(ns):
+    """The gates are functions of both x_t and H_(t-1)."""
+    m, x, h0, c0, ((_, ca), _, _) = _step_probe(ns)
+    _, c_h = _one_step(m, x, h0 * -1.0 + 0.1, c0)
+    _, c_x = _one_step(m, x + 1.0, h0, c0)
+    assert float((c_h - ca).abs().max()) > 1e-4, (
+        "changing H_(t-1) did not change C_t — the gates ignore the previous hidden "
+        "state, so this is not a recurrent cell")
+    assert float((c_x - ca).abs().max()) > 1e-4, \
+        "changing x_t did not change C_t — the gates ignore the input"
+
+
 def check_custom_gradients_reach_all_parameters(ns):
     m = _custom(ns)
     pred, _ = _unpack(m(torch.randn(2, SEQ, FEAT), _zero_state(2)), "CustomLSTMModel")
@@ -168,6 +262,10 @@ CHECKS = [
     check_custom_honours_its_hidden_size,
     check_custom_state_is_resumable,
     check_custom_hidden_state_is_bounded,
+    check_custom_default_state_is_zeros,
+    check_custom_forget_gate_scales_the_old_cell,
+    check_custom_output_gate_reads_tanh_of_the_cell,
+    check_custom_gates_read_input_and_hidden,
     check_custom_gradients_reach_all_parameters,
     check_custom_can_learn,
     check_inbuilt_output_shape,

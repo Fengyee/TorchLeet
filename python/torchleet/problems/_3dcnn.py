@@ -4,7 +4,9 @@ MedCNN is handed a stand-in backbone built from plain torch that behaves like a
 headless ResNet-18 (3-channel images in, 512 feature maps at 1/32 resolution
 out), so no torchvision download is needed to grade it. The checks are structural
 — a segmentation head must return a per-voxel probability map at the *input*
-resolution, and the borrowed backbone must actually be on the gradient path.
+resolution, in the masks' [B, D, 1, W, H] layout (the problem fixes that layout,
+and anything else makes `pred * labels` in the Dice loss broadcast silently), and
+the borrowed backbone must actually be on the gradient path.
 
 compute_dice_loss is pinned against the Dice formula itself on binary masks, and
 both common conventions (the coefficient, or 1 - coefficient) are accepted since
@@ -18,7 +20,8 @@ DEVICE = "cpu"
 EXTRAS = []
 HINTS = [
     "The input is [B, D, C, W, H]. Fold depth into the batch (view(B*D, C, W, H)) "
-    "for the 2D backbone, then unfold and permute to [B, C, D, W, H] for Conv3d.",
+    "for the 2D backbone, then unfold and permute to [B, C, D, W, H] for Conv3d — "
+    "and permute back to [B, D, 1, W, H] at the end so pred lines up with the masks.",
     "ResNet-18 with its last two children stripped divides W and H by 32, so the "
     "ConvTranspose3d stack has to multiply them back by 32 — use kernel/stride "
     "(1, k, k) so the depth axis is left alone.",
@@ -53,12 +56,8 @@ def _volume(batch=BATCH, depth=DEPTH, size=SIZE):
     return torch.randn(batch, depth, CH, size, size)
 
 
-def check_segmentation_output_shape(ns):
-    """One probability per voxel, at the resolution of the input volume."""
-    m = _model(ns)
-    m.eval()
-    x = _volume()
-    out = m(x)
+def _assert_mask_layout(out, depth):
+    want = (BATCH, depth, 1, SIZE, SIZE)
     assert out.ndim == 5, (
         f"expected a 5D volume out of a 5D volume, got {out.ndim}D "
         f"{tuple(out.shape)}")
@@ -68,11 +67,22 @@ def check_segmentation_output_shape(ns):
         f"the mask is {tuple(out.shape[-2:])} but the slices are {(SIZE, SIZE)} — "
         f"the backbone divides W and H by {DOWNSAMPLE}, so the transposed "
         "convolutions have to put that back")
-    assert out.numel() == BATCH * DEPTH * SIZE * SIZE, (
-        f"expected one channel of {DEPTH} slices per volume "
-        f"({BATCH * DEPTH * SIZE * SIZE} values), got {out.numel()} in "
+    assert out.numel() == BATCH * depth * SIZE * SIZE, (
+        f"expected one channel of {depth} slices per volume "
+        f"({BATCH * depth * SIZE * SIZE} values), got {out.numel()} in "
         f"{tuple(out.shape)} — the final layer should map down to out_channel=1 "
         "and keep all the slices")
+    assert tuple(out.shape) == want, (
+        f"got {tuple(out.shape)} but the masks are laid out [B, D, 1, W, H] = {want}; "
+        "permute the Conv3d output [B, 1, D, W, H] back, or pred * labels in the "
+        "Dice loss broadcasts to [B, D, D, W, H] and the loss is meaningless")
+
+
+def check_segmentation_output_shape(ns):
+    """One probability per voxel, at the resolution and layout of the masks."""
+    m = _model(ns)
+    m.eval()
+    _assert_mask_layout(m(_volume()), DEPTH)
 
 
 def check_output_is_a_probability_map(ns):
@@ -120,6 +130,7 @@ def check_handles_a_different_depth(ns):
             f"a volume of {depth} slices produced {tuple(out.shape)} "
             f"({out.numel()} values), expected {BATCH * depth * SIZE * SIZE} — "
             "the 3D convolutions should keep the depth axis intact")
+        _assert_mask_layout(out, depth)
 
 
 # ------------------------------------------------------------------ dice
