@@ -1,0 +1,25 @@
+id = "diffusion-parameterizations"
+title = "Diffusion Schedules and Parameterizations: ε, x₀, v, SNR"
+description = "Implement the linear and cosine noise schedules, the eps / x0 / v / score conversions, SNR and Min-SNR-gamma loss weights, zero-terminal-SNR rescaling and the DDPM posterior as exact, vectorized float64 functions."
+difficulty = "medium"
+number = 28
+set = "v4"
+category = "generative"
+tracks = ["advanced"]
+
+# GENERATED from the grader spec — edit python/torchleet/problems/*.py, then run: generate.py hints
+hints = [
+  "Write everything in terms of the signal scale alpha_t = sqrt(abar_t) and the noise scale sigma_t = sqrt(1 - abar_t), with alpha^2 + sigma^2 = 1: x_t = alpha x0 + sigma eps is one linear equation, so knowing x_t and any one of (x0, eps, v) gives the others. Keep arrays 0-based (index i is the paper's t = i + 1) and give each sample its own abar.",
+  "Reshape the (B,) abar to (B, 1, ..., 1) before mixing with (B, C, H, W) tensors. v = alpha*eps - sigma*x0 is a rotation of (x0, eps) by the angle phi = atan2(sigma, alpha), so the inverse is the transposed rotation. Cosine schedule: evaluate f at t = 0..T, take betas = 1 - f[1:]/f[:-1], clip at max_beta, then cumprod(1 - betas). For min-SNR, convert the x0-space weight min(SNR, gamma) to the eps / v losses by how their errors scale.",
+  "eps weight = min(SNR, gamma)/SNR written as clamp(gamma/SNR, max=1) (finite at SNR = 0); v weight = min(SNR, gamma)/(SNR + 1). Zero terminal SNR: s = sqrt(cumprod(1 - betas)); s = (s - s[-1]) * s[0] / (s[0] - s[-1]); abar = s^2; alphas = [abar[0], abar[1:]/abar[:-1]]; betas = 1 - alphas. Posterior: build abar_prev = [1, abar[:-1]] and gather everything at t (index 0 must give mean x0 and variance 0 — do not index abar[t - 1]).",
+]
+
+[notebooks]
+question = "diffusion-parameterizations.ipynb"
+solution = "diffusion-parameterizations_SOLN.ipynb"
+
+[grading]
+tier = "A"        # A = auto-graded by check(), C = not graded
+entries = ["linear_beta_schedule", "cosine_alpha_bar", "eps_to_x0", "x0_to_eps", "v_from_x0_eps", "v_to_x0_eps", "eps_to_score", "snr", "min_snr_weight", "rescale_zero_terminal_snr", "q_posterior"]
+extras = []
+device = "cpu"

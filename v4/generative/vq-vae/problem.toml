@@ -1,0 +1,25 @@
+id = "vq-vae"
+title = "Vector Quantization (VQ-VAE) with Straight-Through Gradients"
+description = "Implement a VQ-VAE quantizer (vectorized nearest-code search, straight-through gradients, codebook + commitment losses), its EMA-codebook variant with Laplace smoothing, and the codebook-perplexity diagnostic."
+difficulty = "medium"
+number = 27
+set = "v4"
+category = "generative"
+tracks = ["advanced"]
+
+# GENERATED from the grader spec — edit python/torchleet/problems/*.py, then run: generate.py hints
+hints = [
+  "The quantizer is a nearest-neighbour lookup over the codebook, done for every spatial position at once: move the channel axis last and flatten so each row is one D-dimensional vector, compute all row-to-code distances in one shot, take the argmin, then undo the layout. The two loss terms have the same value; what makes them different is which side is detached.",
+  "z.permute(0, 2, 3, 1).reshape(-1, D) gives (B*H*W, D) rows (a plain reshape of a channel-first tensor mixes channels and positions). ||z - e||^2 = ||z||^2 - 2 z.e + ||e||^2 gives the (N, K) distance matrix with one matmul. loss = mse(z_q, z.detach()) + beta * mse(z, z_q.detach()); straight-through output z + (z_q - z).detach(). EMA: count the assignments n_k and sum the assigned vectors s_k (one_hot(idx).T @ z_flat), all under torch.no_grad().",
+  "EMA step in training mode only, after computing z_q with the current codebook: N = decay*N + (1-decay)*n; m = decay*m + (1-decay)*s; total = N.sum(); N_s = (N + eps) / (total + K*eps) * total; codebook = m / N_s[:, None] (keep the raw N in the buffer). Perplexity: p = bincount(indices.flatten(), minlength=K) / count; exp(-sum p log p) with 0 log 0 = 0 (torch.special.xlogy).",
+]
+
+[notebooks]
+question = "vq-vae.ipynb"
+solution = "vq-vae_SOLN.ipynb"
+
+[grading]
+tier = "A"        # A = auto-graded by check(), C = not graded
+entries = ["VectorQuantizer", "VectorQuantizerEMA", "codebook_perplexity"]
+extras = []
+device = "cpu"
