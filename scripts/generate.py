@@ -6,12 +6,13 @@ Subcommands:
   check     validate manifests against disk and grader specs (CI gate)
   coverage  print how many problems are auto-graded
   hints     copy each grader spec's HINTS into its problem.toml
+  tiers     set grading.tier from whether a grader spec exists
   badges    (re)write the Colab/grader cell at the top of question notebooks
   readme    write PROBLEMS.md and sync the counts quoted in README.md
   sources   write SOURCES.md from the [[companies]] tables
   website   write website/src/data/problems.generated.ts
   json      write problems.json (+ space/problems.json)
-  all       hints, badges, readme, sources, website, json — run after adding a problem
+  all       hints, tiers, badges, readme, sources, website, json — run after adding a problem
   seed      historical one-time bootstrap (reads /tmp/catalog.json); not for normal use
 
 Reads TOML with stdlib tomllib. Writes it with a small emitter here, because the
@@ -351,14 +352,18 @@ def cmd_badges() -> int:
     for m, d in load_all():
         nb_path = d / m["notebooks"]["question"]
         nb = json.loads(nb_path.read_text())
+        if _spec_entries(m.get("id")) is not None:
+            how = (f"Check your work: `{INSTALL_LOCAL}` once from the repo root "
+                   f"(on Colab: `{INSTALL_COLAB}`), then "
+                   f"`from torchleet import check; check(\"{m['id']}\", ...)`\n")
+        else:
+            how = ("This problem is not auto-graded: run the notebook's own checks, "
+                   "then compare with the solution notebook.\n")
         cell = {
             "cell_type": "markdown", "metadata": {},
             "source": [f"{MARK}\n",
                        f"[![Open In Colab]({BADGE})]({colab_url(m, d)})\n",
-                       "\n",
-                       f"Check your work: `{INSTALL_LOCAL}` once from the repo root "
-                       f"(on Colab: `{INSTALL_COLAB}`), then "
-                       f"`from torchleet import check; check(\"{m['id']}\", ...)`\n"],
+                       "\n", how],
         }
         # nbformat >= 4.5 requires a cell id; older notebooks must not have one.
         if (nb.get("nbformat"), nb.get("nbformat_minor", 0)) >= (4, 5):
@@ -603,6 +608,24 @@ def cmd_hints() -> int:
     return 0
 
 
+def cmd_tiers() -> int:
+    """Derive grading.tier from whether a grader spec exists: A = auto-graded,
+    C = not graded. The seeded heuristic tiers had drifted from reality."""
+    n = 0
+    for m, d in load_all():
+        tier = "A" if _spec_entries(m.get("id")) is not None else "C"
+        mf = d / "problem.toml"
+        txt = mf.read_text()
+        new = re.sub(r'^tier = "[ABC]".*$',
+                     f'tier = "{tier}"        # A = auto-graded by check(), C = not graded',
+                     txt, count=1, flags=re.M)
+        if new != txt:
+            mf.write_text(new)
+            n += 1
+    print(f"tiers synced ({n} manifests changed)")
+    return 0
+
+
 def cmd_json() -> int:
     """Flat problems.json — consumed by the HF Space and available to any other
     client that should not hand-maintain a second copy of the catalogue."""
@@ -693,8 +716,11 @@ if __name__ == "__main__":
         sys.exit(cmd_json())
     if cmd == "hints":
         sys.exit(cmd_hints())
+    if cmd == "tiers":
+        sys.exit(cmd_tiers())
     if cmd == "all":
-        for step in (cmd_hints, cmd_badges, cmd_readme, cmd_sources, cmd_website, cmd_json):
+        for step in (cmd_hints, cmd_tiers, cmd_badges, cmd_readme, cmd_sources,
+                     cmd_website, cmd_json):
             if step():
                 sys.exit(1)
         sys.exit(cmd_check())
