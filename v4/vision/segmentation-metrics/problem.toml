@@ -1,0 +1,25 @@
+id = "segmentation-metrics"
+title = "Segmentation Metrics: Confusion Matrix, mIoU and Dice"
+description = "Build a single-bincount pixel confusion matrix with ignore/void handling, per-class IoU and Dice, pixel and mean class accuracy, and a streaming dataset-level mIoU accumulator."
+difficulty = "easy"
+number = 30
+set = "v4"
+category = "vision"
+tracks = ["basics"]
+
+# GENERATED from the grader spec — edit python/torchleet/problems/*.py, then run: generate.py hints
+hints = [
+  "Every metric here is a function of one C x C matrix of pixel counts. Build it once: flatten, keep only the pixels whose target is a real class (in range and not ignore_index), and turn each (target, pred) pair into ONE integer so a single counting op fills the whole matrix. After that, every metric is a combination of the diagonal, the row sums and the column sums.",
+  "index = target * C + pred, counted with torch.bincount(index, minlength=C * C) and reshaped to (C, C) so rows are targets; cast to int64 first (uint8 PNG masks overflow). TP = diag, FN = row sum - TP, FP = column sum - TP; IoU = TP / (TP + FP + FN), Dice = 2TP / (2TP + FP + FN). Divide in float64 and let 0 / 0 become NaN, then average with torch.nanmean.",
+  "keep = (target >= 0) & (target < C) & (target != ignore_index); if pred[keep] has anything outside [0, C) raise ValueError; cm = bincount(C * t + p, minlength=C*C).view(C, C). iou = diag / (rows + cols - diag); mean_iou = nanmean(iou); pixel accuracy = diag.sum() / cm.sum(); mean class accuracy = nanmean(diag / rows). SegMetric holds a (C, C) int64 buffer, adds each batch's matrix in update(), and compute() runs the metric functions on the sum.",
+]
+
+[notebooks]
+question = "segmentation-metrics.ipynb"
+solution = "segmentation-metrics_SOLN.ipynb"
+
+[grading]
+tier = "A"        # A = auto-graded by check(), C = not graded
+entries = ["confusion_matrix", "iou_per_class", "mean_iou", "dice_per_class", "pixel_accuracy", "mean_class_accuracy", "SegMetric"]
+extras = []
+device = "cpu"
