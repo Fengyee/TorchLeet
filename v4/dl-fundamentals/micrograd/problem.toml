@@ -1,0 +1,25 @@
+id = "micrograd"
+title = "Micrograd: A Scalar Autodiff Engine"
+description = "Build a scalar reverse-mode autodiff engine: operator overloading, accumulated gradients on shared nodes, and an iterative topological sort."
+difficulty = "medium"
+number = 9
+set = "v4"
+category = "dl-fundamentals"
+tracks = ["basics"]
+
+# GENERATED from the grader spec — edit python/torchleet/problems/*.py, then run: generate.py hints
+hints = [
+  "Every operation returns a new Value that remembers its inputs plus a tiny closure `_backward` which, given out.grad, adds (local derivative x out.grad) into each input's .grad. Ask yourself why it must ADD rather than assign.",
+  "backward(): build a topological order of the graph (each node after all of its inputs), set self.grad = 1.0, then call _backward on the nodes in reverse order. Use an explicit stack instead of recursion so a chain 5000 nodes deep still works.",
+  "Derive most ops from a few primitives: a - b = a + (-b), a / b = a * b**-1, -a = a * -1. The reflected ops wrap the Python number with the operands in the right order (1 - v is Value(1) - v, 1 / v is Value(1) / v). Local derivatives: tanh' = 1 - tanh^2, sigmoid' = s(1 - s), exp' = exp, log' = 1/x, (x^k)' = k x^(k-1).",
+]
+
+[notebooks]
+question = "micrograd.ipynb"
+solution = "micrograd_SOLN.ipynb"
+
+[grading]
+tier = "A"        # A=auto-graded B=partial C=not auto-graded
+entries = ["Value"]
+extras = []
+device = "cpu"

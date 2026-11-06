@@ -1,0 +1,25 @@
+id = "mlp-backprop"
+title = "MLP Backprop by Hand (No Autograd)"
+description = "Implement Linear, ReLU and a numerically stable softmax-cross-entropy with hand-written backward passes, and train an MLP with SGD — no autograd."
+difficulty = "medium"
+number = 8
+set = "v4"
+category = "dl-fundamentals"
+tracks = ["basics"]
+
+# GENERATED from the grader spec — edit python/torchleet/problems/*.py, then run: generate.py hints
+hints = [
+  "Write the chain rule for one element first: y[n, o] = sum_i x[n, i] * W[o, i] + b[o], so dL/dW[o, i] = sum over the batch of dL/dy[n, o] * x[n, i]. Every gradient has exactly the shape of the thing it is the gradient of — use that to pick the matmul.",
+  "Linear.forward must cache its input. backward: grad_W = grad_out.T @ x  (out, in), grad_b = grad_out summed over the batch, grad_x = grad_out @ W. ReLU lets the gradient through only where the forward input was strictly > 0.",
+  "Softmax-CE: subtract each row's max before exp (log-sum-exp), loss = mean(logsumexp(z) - z[target]); its gradient w.r.t. the logits is (softmax(z) - onehot(target)) / N. MLP.backward walks self.layers in reverse; step() does W -= lr * grad_W, b -= lr * grad_b.",
+]
+
+[notebooks]
+question = "mlp-backprop.ipynb"
+solution = "mlp-backprop_SOLN.ipynb"
+
+[grading]
+tier = "A"        # A=auto-graded B=partial C=not auto-graded
+entries = ["Linear", "ReLU", "softmax_cross_entropy", "MLP"]
+extras = []
+device = "cpu"
