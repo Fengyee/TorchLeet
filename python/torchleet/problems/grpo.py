@@ -7,7 +7,14 @@ token derived from the prompt), so the sampled tokens and their log-probs are
 predictable; the advantage normaliser is probed with rewards whose group
 structure makes group-local vs global normalisation distinguishable; and the
 loss is probed through its defining behaviours (beta scales the KL term,
-positive advantage lowers the loss, the ratio clip flattens the objective).
+positive advantage lowers the loss, the ratio clip flattens the objective, the
+min keeps the pessimistic branch).
+
+The KL term must behave like the DeepSeekMath estimator
+pi_ref/pi - log(pi_ref/pi) - 1: non-negative whichever side of the reference the
+policy is on, and with zero gradient where the policy equals the reference. The
+naive mean(log pi - log pi_ref) fails both — it goes negative, and its gradient
+is a constant push on every sampled token whose expectation on-policy is zero.
 """
 import math
 
@@ -28,6 +35,9 @@ HINTS = [
     "grpo_loss = -mean(min(ratio*A, clip(ratio, 1-eps, 1+eps)*A)) + beta*KL, "
     "with ratio = exp(policy_logps - old_logps) and A broadcast over the tokens "
     "of its sequence.",
+    "The KL is the paper's per-token estimator: with d = ref_logps - policy_logps, "
+    "KL = exp(d) - d - 1, averaged over tokens. mean(policy_logps - ref_logps) can "
+    "go negative and has zero expected gradient as a loss.",
 ]
 
 VOCAB, SEQ, GROUP, NPROMPT = 10, 6, 4, 3
@@ -294,6 +304,52 @@ def check_clipping_caps_the_objective(ns):
         f"the clip is missing or applied to the wrong branch")
 
 
+def check_kl_is_nonnegative_below_the_reference_too(ns):
+    """A divergence cannot be negative — not even when the sampled tokens became
+    LESS likely under the policy than under the reference."""
+    torch.manual_seed(7)
+    ref = torch.randn(B_, S_)
+    adv = torch.randn(B_)
+    below = float(torch.as_tensor(_loss(ns, ref - 0.5, ref - 0.5, adv, ref)["kl_div"]))
+    above = float(torch.as_tensor(_loss(ns, ref + 0.5, ref + 0.5, adv, ref)["kl_div"]))
+    assert below > 0 and above > 0, (
+        f"kl_div must be positive whether the policy's log-probs sit above or below "
+        f"the reference's; got {above:.4f} (policy above) and {below:.4f} (policy "
+        f"below). mean(policy_logps - ref_logps) goes negative — use the paper's "
+        f"estimator exp(d) - d - 1 with d = ref_logps - policy_logps")
+
+
+def check_kl_gradient_vanishes_at_the_reference(ns):
+    """At pi == pi_ref the KL is at its minimum, so its gradient must be zero."""
+    torch.manual_seed(8)
+    p = torch.randn(B_, S_, requires_grad=True)
+    out = _loss(ns, p, p.detach(), torch.zeros(B_), p.detach(), beta=1.0)
+    grad, = torch.autograd.grad(torch.as_tensor(out["total_loss"]), p, allow_unused=True)
+    assert grad is not None, "no gradient reached policy_logps through the KL term"
+    assert float(grad.abs().max()) < 1e-6, (
+        f"with zero advantages and policy == reference the only term left is the KL "
+        f"penalty, which is at its minimum — its gradient should be 0, got up to "
+        f"{float(grad.abs().max()):.3e}. A KL term of mean(policy_logps - ref_logps) "
+        f"pushes down every sampled token's log-prob regardless of the reference "
+        f"(zero gradient in expectation, pure noise per batch).")
+
+
+def check_min_keeps_the_pessimistic_branch(ns):
+    """min(r*A, clip(r)*A) only clips where clipping LOWERS the objective."""
+    old = torch.zeros(B_, S_)
+    eps = 0.2
+    for ratio, a in ((3.0, -1.0), (0.5, 1.0), (0.5, -1.0)):
+        pol = torch.full((B_, S_), math.log(ratio))
+        got = float(torch.as_tensor(_loss(ns, pol, old, torch.full((B_,), a), pol,
+                                          clip=eps)["total_loss"]))
+        clipped = min(max(ratio, 1 - eps), 1 + eps)
+        expected = -min(ratio * a, clipped * a)
+        assert abs(got - expected) < 1e-4, (
+            f"ratio={ratio}, advantage={a}: min(r*A, clip(r)*A) = {-expected:.3f}, so "
+            f"total_loss (beta=0) should be {expected:.3f}; got {got:.4f}. Clipping both "
+            f"branches (or taking the max) loses PPO's pessimistic bound.")
+
+
 def check_gradients_reach_the_policy(ns):
     torch.manual_seed(6)
     p = torch.randn(B_, S_, requires_grad=True)
@@ -317,5 +373,8 @@ CHECKS = [
     check_beta_scales_the_kl_penalty,
     check_positive_advantage_lowers_the_loss,
     check_clipping_caps_the_objective,
+    check_min_keeps_the_pessimistic_branch,
+    check_kl_is_nonnegative_below_the_reference_too,
+    check_kl_gradient_vanishes_at_the_reference,
     check_gradients_reach_the_policy,
 ]

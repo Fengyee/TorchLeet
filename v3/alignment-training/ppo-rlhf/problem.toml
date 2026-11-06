@@ -14,6 +14,7 @@ hints = [
   "generate_sequences starts from a BOS token (id = vocab_size), samples one token at a time from Categorical(logits=logits[:, -1, :]), and returns the running input ids so the value model can be scored on the same prefixes.",
   "GAE runs backwards: delta_t = r_t + gamma*V(s_{t+1}) - V(s_t) with V(s_T)=0, then A_t = delta_t + gamma*lam*A_{t+1}.",
   "ppo_step recomputes log-probs for `actions` under the current policy, forms ratio = exp(new - old), and takes min(ratio*A, clamp(ratio, 1-eps, 1+eps)*A). total_loss = -policy_objective + 0.5*value_loss + kl_beta*kl_div.",
+  "For kl_div use the k3 estimator exp(ref - new) - (ref - new) - 1, averaged over tokens. mean(new - ref) has the right value but zero expected gradient, so as a loss term it never pulls the policy back toward the reference.",
 ]
 
 [notebooks]

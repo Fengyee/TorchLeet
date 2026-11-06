@@ -1,7 +1,7 @@
 """fsdp — parameter sharding with all-gather before forward, reduce-scatter after.
 
-Device note: the manifest tags this problem cuda, but the exercise itself says
-"all computation happens on CPU using simulated distributed ops" — FakeDistributed
+Device note: the exercise says "all computation happens on CPU using simulated
+distributed ops" (the manifest used to tag it cuda) — FakeDistributed
 stands in for NCCL and never touches a GPU. So DEVICE is cpu and the collectives
 and the sharded layer are graded for real rather than skipped for want of a GPU.
 Nothing here would be verified any better with one.
@@ -10,7 +10,9 @@ The collectives are graded by their defining identities, which hold for any
 implementation: all_gather(shard(t)) == t, and gathering a reduce_scatter gives
 the elementwise sum of the inputs. The layer is graded by the property sharding
 is supposed to preserve — every rank computes the same thing, and it is the same
-thing an unsharded nn.Linear would compute.
+thing an unsharded nn.Linear would compute — and the simulated data-parallel
+backward must reproduce the single-device weight gradient exactly (each rank on
+its own micro-batch, summed by the reduce-scatter).
 """
 import torch
 import torch.nn.functional as F
@@ -29,6 +31,9 @@ HINTS = [
     "forward_on_rank should all-gather the weight and bias shards, run "
     "F.linear(x, full_weight, full_bias), and drop the gathered copy afterwards — "
     "that release is what makes the memory saving real.",
+    "compute_gradient_shards is data parallelism: split x and grad_output into one "
+    "micro-batch per rank, let each rank compute grad_out_r.T @ x_r, then "
+    "reduce_scatter. Gathering the shards must give exactly grad_output.T @ x.",
 ]
 
 WORLD, IN_DIM, OUT_DIM, BATCH = 4, 16, 32, 4
@@ -155,17 +160,16 @@ def check_forward_matches_a_plain_linear(ns):
 
 
 def check_gradient_shards_reconstruct_the_weight_gradient(ns):
-    """dL/dW = grad_output^T @ x, sharded the same way the weight is."""
+    """Data-parallel backward + reduce-scatter must reproduce the single-device
+    gradient dL/dW = grad_output^T @ x exactly, sharded the way the weight is."""
     dist = ns.FakeDistributed(world_size=WORLD)
     layer = _layer(ns, dist)
     fn = getattr(layer, "compute_gradient_shards", None)
     if fn is None:
         raise Skip("no compute_gradient_shards on this FSDPLinear")
     torch.manual_seed(3)
-    # Large magnitudes: this problem's solution perturbs each rank's gradient to
-    # stand in for different data batches, so compare directions, not exact values.
-    x = torch.randn(BATCH, IN_DIM) * 50
-    grad_out = torch.randn(BATCH, OUT_DIM) * 50
+    x = torch.randn(2 * WORLD, IN_DIM)            # two samples per rank
+    grad_out = torch.randn(2 * WORLD, OUT_DIM)
     shards = fn(x, grad_out)
     assert len(shards) == WORLD, \
         f"expected one gradient shard per rank ({WORLD}), got {len(shards)}"
@@ -175,15 +179,22 @@ def check_gradient_shards_reconstruct_the_weight_gradient(ns):
             f"{(OUT_DIM // WORLD, IN_DIM)} — the gradient is sharded like the weight")
     gathered = dist.all_gather(list(shards), dim=0)
     expected = grad_out.T @ x
-    scale = (gathered * expected).sum() / expected.pow(2).sum()
-    assert scale > 0, (
-        "the gathered gradient points the wrong way — dL/dW should be "
-        "grad_output.T @ x (note the transpose order)")
-    rel = (gathered - scale * expected).abs().max() / expected.abs().max()
-    assert rel < 5e-2, (
-        f"the gathered gradient is not a positive multiple of grad_output.T @ x "
-        f"(relative deviation {rel:.2e}); each rank computes the full weight "
-        f"gradient and reduce-scatter splits the reduced result")
+    if torch.allclose(gathered, -expected, atol=1e-4) or \
+            torch.allclose(gathered, expected.T.reshape(expected.shape), atol=1e-4):
+        raise AssertionError("the gathered gradient has the wrong orientation — dL/dW "
+                             "is grad_output.T @ x (note the transpose order)")
+    for factor, why in ((WORLD, "every rank used the WHOLE batch, so the sum counts it "
+                                f"{WORLD} times — give rank r only micro-batch r"),
+                        (1 / WORLD, "the per-rank gradients were averaged; grad_output is "
+                                    "already dL/dY of the global loss, so they must be summed")):
+        if torch.allclose(gathered, factor * expected, atol=1e-4):
+            raise AssertionError(f"the gathered gradient is {factor:g} x the single-device "
+                                 f"gradient: {why}")
+    diff = (gathered - expected).abs().max().item()
+    assert torch.allclose(gathered, expected, atol=1e-4), (
+        f"gathering the reduce-scattered shards should give exactly the single-device "
+        f"gradient grad_output.T @ x (max diff {diff:.2e}). Split the batch across ranks, "
+        f"let each rank compute its local grad_out_r.T @ x_r, and reduce-scatter the sum.")
 
 
 def check_sharding_reduces_memory_per_rank(ns):
