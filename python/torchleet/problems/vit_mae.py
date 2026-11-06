@@ -21,6 +21,9 @@ Graded by properties rather than by diffing against a reference ViT:
   pred untouched, while rewriting a visible one must change it. That pins the
   mask convention (1 = masked), the gather of the kept tokens, and returning the
   mask in the original (unshuffled) patch order.
+* training is checked by where the gradient goes, not by parameter names: the
+  loss (masked patches only) must send gradient to the pixels of the VISIBLE
+  patches, which it can only reach through encoder -> decoder -> masked pred.
 """
 import torch
 
@@ -348,21 +351,65 @@ def check_encoder_never_sees_masked_patches(ns):
 
 
 def check_mae_gradients_flow(ns):
+    """Graded by where the gradient goes, not by parameter names.
+
+    The loss only looks at MASKED patches, so the gradient can reach the pixels of
+    a VISIBLE patch only along patch embedding -> encoder -> decoder -> pred at the
+    masked positions. A non-zero gradient there proves both halves are on the
+    differentiable path; a detached or no_grad encoder, or a pred that skips the
+    decoder (masked positions then see nothing but the mask token), leaves it at 0.
+    A frozen network (requires_grad_(False) on most of what produces pred) still
+    passes that gradient through, so the share of frozen parameters is checked too."""
     mae = _mae(ns)
-    loss, _, _ = _mae_forward(mae, torch.randn(2, CH, IMG, IMG))
-    loss.backward()
-    named = [(n, p.grad) for n, p in mae.named_parameters()]
-    assert any(g is not None and bool((g != 0).any()) for _, g in named), \
+    torch.manual_seed(5)
+    imgs = torch.randn(2, CH, IMG, IMG, requires_grad=True)
+    loss, pred, mask = _mae_forward(mae, imgs)
+    try:
+        loss.backward()
+    except RuntimeError as e:
+        raise AssertionError(
+            f"loss.backward() failed ({e}) — the loss is not connected to the model's "
+            f"parameters (is pred or the loss detached?)")
+    assert any(p.grad is not None and bool((p.grad != 0).any())
+               for p in mae.parameters() if p.requires_grad), \
         "no MAE parameter received a gradient from the reconstruction loss"
-    dec = [(n, g) for n, g in named
-           if g is not None and "decod" in n.lower() and bool((g != 0).any())]
-    enc = [(n, g) for n, g in named
-           if g is not None and ("encod" in n.lower() or "patch" in n.lower())
-           and bool((g != 0).any())]
-    assert dec, "the decoder received no gradient — check that pred comes from it"
-    assert enc, (
-        "the encoder / patch embedding received no gradient — the visible patches "
-        "must flow through the encoder into the decoder, not be detached")
+
+    if imgs.grad is None:
+        raise Skip("MAE.forward detaches the input images, so the gradient path "
+                   "through the encoder could not be traced")
+    per_patch = imgs.grad.abs().reshape(2, CH, GRID, PATCH, GRID, PATCH).sum(dim=(1, 3, 5))
+    visible = mask.detach().float().reshape(2, GRID, GRID) < 0.5
+    assert bool(visible.any()), "expected some visible patches at mask_ratio=0.75"
+    assert float(per_patch[visible].max()) > 0, (
+        "the loss sends no gradient to the pixels of the VISIBLE patches, so the "
+        "patch embedding and encoder can never learn: the encoded visible tokens "
+        "must flow (not detached, not under torch.no_grad) through the decoder into "
+        "the predictions for the masked patches — which also means pred has to come "
+        "from a decoder that mixes visible tokens with the mask tokens")
+
+    frozen = [p for p in mae.parameters() if not p.requires_grad]
+    if frozen:
+        # Which frozen parameters actually shape pred? Unfreeze them for one probe.
+        mae.zero_grad(set_to_none=True)
+        for p in frozen:
+            p.requires_grad_(True)
+        try:
+            torch.manual_seed(5)
+            _, pred2, _ = _mae_forward(mae, imgs.detach())
+            (pred2 * torch.randn_like(pred2)).sum().backward()
+            used = [p for p in mae.parameters()
+                    if p.grad is not None and bool((p.grad != 0).any())]
+            frozen_ids = {id(p) for p in frozen}
+            n_used = sum(p.numel() for p in used)
+            n_frozen = sum(p.numel() for p in used if id(p) in frozen_ids)
+        finally:
+            for p in frozen:
+                p.requires_grad_(False)
+        assert n_frozen <= 0.1 * n_used, (
+            f"{n_frozen} of the {n_used} parameter values that produce pred have "
+            f"requires_grad=False, so the optimiser can never update them. Only small "
+            f"fixed tensors such as sin-cos positional embeddings should be frozen; "
+            f"the patch embedding, encoder and decoder must be trainable.")
 
 
 CHECKS = [

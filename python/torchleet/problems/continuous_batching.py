@@ -13,8 +13,10 @@ properties a correct scheduler must have:
   * a bigger batch finishes the same work in fewer steps, which a scheduler that
     serves one request at a time cannot do.
 
-The toy model's next token depends only on how many non-EOS tokens a row holds,
-so padding choices cannot change the result in those checks.
+The toy model is causal: its next token after position t depends only on how
+many non-EOS tokens positions 0..t hold. Read at a row's last real token, that is
+the request's own length whatever token the right-padding uses, so padding
+choices cannot change the result in those checks.
 
 Two further checks pin down what makes it *batching*:
 
@@ -22,8 +24,9 @@ Two further checks pin down what makes it *batching*:
     call (one forward per request is sequential decoding with extra steps);
   * padding is handled correctly — with a causal toy model that uses absolute
     positions and emits a poison token at padding positions, every request must
-    decode exactly as it would alone. Right-padding with eos_token_id and reading
-    each row's logits at its own last real position passes; reading the last
+    decode exactly as it would alone. Right-padding (with eos_token_id or any
+    other token) and reading each row's logits at its own last real position
+    passes; reading the last
     column (a pad) or left-padding (shifts every position) does not.
 """
 import torch
@@ -58,19 +61,21 @@ _NEXT[::7] = EOS          # every 7th sequence length ends the request
 class _SpikeLM(nn.Module):
     """(B, S) token ids -> (B, S, V) logits with a single dominant token.
 
-    The spike is chosen from the number of non-EOS tokens in the row, so right or
-    left padding with zeros does not change the answer, and the -1e4 floor makes
-    sampling deterministic in float32.
+    Causal, like a real LM: the spike at position t is chosen from the number of
+    non-EOS tokens in positions 0..t. A live request holds no EOS, so at a row's
+    last real token that count is the request's length, whichever token pads the
+    row after it (and left padding with EOS zeros leaves it unchanged as well).
+    The -1e4 floor makes sampling deterministic in float32.
     """
 
     def forward(self, input_ids):
         ids = input_ids if input_ids.dim() == 2 else input_ids.unsqueeze(0)
         ids = ids.long()
-        count = (ids != EOS).sum(dim=1)
+        count = (ids != EOS).long().cumsum(dim=1)                 # (B, S), causal
         nxt = _NEXT[count % _NEXT.numel()]
         b, s = ids.shape
         logits = torch.full((b, s, VOCAB), -1e4)
-        logits.scatter_(2, nxt.view(b, 1, 1).expand(b, s, 1), 1e4)
+        logits.scatter_(2, nxt.unsqueeze(-1), 1e4)
         return logits if input_ids.dim() == 2 else logits.squeeze(0)
 
 
