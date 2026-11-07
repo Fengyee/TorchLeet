@@ -10,7 +10,7 @@ tracks = ["advanced"]
 
 # GENERATED from the grader spec — edit python/torchleet/problems/*.py, then run: generate.py hints
 hints = [
-  "The input is [B, D, C, W, H]. Fold depth into the batch (view(B*D, C, W, H)) for the 2D backbone, then unfold and permute to [B, C, D, W, H] for Conv3d.",
+  "The input is [B, D, C, W, H]. Fold depth into the batch (view(B*D, C, W, H)) for the 2D backbone, then unfold and permute to [B, C, D, W, H] for Conv3d — and permute back to [B, D, 1, W, H] at the end so pred lines up with the masks.",
   "ResNet-18 with its last two children stripped divides W and H by 32, so the ConvTranspose3d stack has to multiply them back by 32 — use kernel/stride (1, k, k) so the depth axis is left alone.",
   "Dice over binary masks is 2*|pred ∩ label| / (|pred| + |label|); finish the network with sigmoid so pred is a probability the overlap can be computed on.",
 ]
@@ -20,7 +20,7 @@ question = "3DCNN.ipynb"
 solution = "3DCNN_SOLN.ipynb"
 
 [grading]
-tier = "C"        # A=auto-graded B=partial C=not auto-graded (SEEDED, confirm)
+tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["MedCNN", "compute_dice_loss"]
-extras = ["torchvision"]
+extras = []
 device = "cpu"

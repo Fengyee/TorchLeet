@@ -1,24 +1,29 @@
-"""rnn — a recurrent network that folds a whole sequence into one prediction.
+"""rnn — a recurrent network, written from scratch, that folds a whole sequence
+into one prediction.
 
-There is no single correct RNN here (nn.RNN or a hand-rolled tanh recurrence are
-both fine), so nothing is compared against a reference. The checks pin the
-contract — (batch, seq_len, 1) in, (batch, 1) out for any batch and any sequence
-length — and then verify the one property that makes a network *recurrent*: the
-prediction depends on the whole sequence, not just its last step.
+The problem asks for the recurrence in raw tensor ops, so a model that wraps
+nn.RNN / nn.RNNCell (or LSTM/GRU) is rejected; beyond that, parameter names and
+initialization are free, so nothing is compared against a reference. The checks
+pin the contract — (batch, seq_len, 1) in, (batch, 1) out for any batch and any
+sequence length — and then verify the properties that make a network
+*recurrent*: the prediction depends on the whole sequence, not just its last
+step, and on the order of the steps, not just on which values occurred.
 """
 import torch
+import torch.nn as nn
 from torchleet.checks import common as c
 
 ENTRIES = ["RNNModel"]
 DEVICE = "cpu"
 EXTRAS = []
 HINTS = [
-    "The input is (batch, seq_len, input_size) — nn.RNN needs batch_first=True "
-    "to read it that way.",
-    "Feed only the final hidden state into the fully connected layer; that is the "
-    "summary of the whole sequence.",
-    "The output should be (batch, 1): one predicted next value per sequence, not "
-    "one per timestep.",
+    "Keep a hidden state h of shape (batch, hidden_dim), start it at zeros on every "
+    "forward call, and update it once per timestep in a Python loop over seq_len.",
+    "The update is h = tanh(x_t W_ih + h W_hh + b) with the same W_ih, W_hh and b at "
+    "every step (store them as nn.Parameter); x_t is x[:, t] because the input is "
+    "(batch, seq_len, input_dim).",
+    "After the loop, the final h summarises the whole sequence: map it with "
+    "nn.Linear(hidden_dim, 1) to get one prediction per sequence, shape (batch, 1).",
 ]
 
 SEQ, FEAT = 10, 1
@@ -81,6 +86,35 @@ def check_whole_sequence_is_used(ns):
         "so the hidden state is not carrying history forward")
 
 
+def check_order_of_steps_matters(ns):
+    """Same values, different order -> different prediction.
+
+    Catches a model that pools over time (mean/sum of per-step features) instead
+    of carrying a state forward: pooling cannot tell these two sequences apart.
+    """
+    m = _model(ns)
+    a = torch.zeros(1, SEQ, FEAT)
+    b = torch.zeros(1, SEQ, FEAT)
+    a[0, 1, 0] = 3.0            # a spike early in the sequence ...
+    b[0, SEQ - 2, 0] = 3.0      # ... or late; both end on the same value (0)
+    with torch.no_grad():
+        ya, yb = m(a), m(b)
+    assert not torch.allclose(ya, yb, atol=1e-5), (
+        "moving a value to a different timestep did not change the output "
+        f"({ya.flatten().tolist()}) — the model is pooling over time instead of "
+        "updating a hidden state step by step")
+
+
+def check_written_from_scratch(ns):
+    """The exercise is the recurrence itself, so no built-in recurrent module."""
+    m = _model(ns)
+    builtin = [n or type(mod).__name__ for n, mod in m.named_modules()
+               if isinstance(mod, (nn.RNNBase, nn.RNNCellBase))]
+    assert not builtin, (
+        f"found built-in recurrent module(s): {', '.join(builtin)} — implement the "
+        "update h_t = tanh(x_t W_ih + h_(t-1) W_hh + b) with your own parameters")
+
+
 def check_deterministic_in_eval(ns):
     m = _model(ns)
     m.eval()
@@ -97,6 +131,8 @@ CHECKS = [
     check_batch_agnostic,
     check_any_sequence_length,
     check_whole_sequence_is_used,
+    check_order_of_steps_matters,
+    check_written_from_scratch,
     check_deterministic_in_eval,
     c.gradients_flow("RNNModel", (SEQ, FEAT)),
     c.can_learn("RNNModel", (SEQ, FEAT), (1,), steps=60, lr=1e-2),

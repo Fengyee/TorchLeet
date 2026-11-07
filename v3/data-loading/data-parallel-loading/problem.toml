@@ -5,14 +5,36 @@ difficulty = "medium"
 frequency = "common"
 category = "data-loading"
 tracks = ["basics"]
-companies = ["Meta", "Google", "NVIDIA", "Anthropic"]
+
+# GENERATED from the grader spec — edit python/torchleet/problems/*.py, then run: generate.py hints
+hints = [
+  "Every rank gets num_samples = ceil(len(dataset) / num_replicas) indices, so the padded index list has total_size = num_samples * num_replicas entries.",
+  "In __iter__, build one index list that is identical on every rank: torch.randperm(n, generator=g) with g.manual_seed(seed + epoch) when shuffling, else range(n) — never seed with the rank.",
+  "Pad by appending indices from the start (repeat the list if padding > n), then take indices[rank::num_replicas] as this rank's shard.",
+]
 
 [notebooks]
 question = "data-parallel-loading.ipynb"
 solution = "data-parallel-loading_SOLN.ipynb"
 
 [grading]
-tier = "C"
-entries = []
+tier = "A"        # A = auto-graded by check(), C = not graded
+entries = ["SimpleDistributedSampler"]
 extras = []
 device = "cpu"
+
+[[companies]]
+name = "Meta"
+confidence = "inferred"   # inferred | reported
+
+[[companies]]
+name = "Google"
+confidence = "inferred"   # inferred | reported
+
+[[companies]]
+name = "NVIDIA"
+confidence = "inferred"   # inferred | reported
+
+[[companies]]
+name = "Anthropic"
+confidence = "inferred"   # inferred | reported

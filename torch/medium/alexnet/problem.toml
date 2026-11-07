@@ -12,7 +12,7 @@ tracks = ["advanced"]
 hints = [
   "AlexNet expects 3x224x224 input and ends in a classifier over num_classes.",
   "Five conv layers with max-pooling, then three fully connected layers.",
-  "Track the spatial size through each stride and pool to size the first Linear.",
+  "Track the spatial size through each stride and pool to size the first Linear: with an 11x11 / stride-4 / padding-2 first conv and three 3x3 / stride-2 max-pools, 224 -> 55 -> 27 -> 13 -> 6, so the first Linear takes 256*6*6.",
 ]
 
 [notebooks]
@@ -20,7 +20,7 @@ question = "alexnet.ipynb"
 solution = "alexnet_SOLN.ipynb"
 
 [grading]
-tier = "C"        # A=auto-graded B=partial C=not auto-graded (SEEDED, confirm)
+tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["AlexNet"]
-extras = ["torchvision"]
+extras = []
 device = "cpu"

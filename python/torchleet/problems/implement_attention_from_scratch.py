@@ -1,6 +1,7 @@
 """implement-attention-from-scratch — scaled dot-product attention.
 
-F.scaled_dot_product_attention is the oracle.
+F.scaled_dot_product_attention is the oracle. The mask follows its boolean
+attn_mask convention: True = may attend, False = blocked.
 """
 import torch
 import torch.nn.functional as F
@@ -58,5 +59,23 @@ def check_mask_blocks_positions(ns):
         f"(max diff {(got - exp).abs().max():.2e})")
 
 
+def check_padding_mask_and_cross_attention(ns):
+    """A key-padding mask of shape (B, 1, 1, S_k) must broadcast over heads and
+    queries, and queries and keys may have different lengths (cross-attention)."""
+    torch.manual_seed(3)
+    s_q, s_k, d_v = 5, 9, 12
+    q, k = torch.randn(B, H, s_q, D), torch.randn(B, H, s_k, D)
+    v = torch.randn(B, H, s_k, d_v)
+    lengths = torch.tensor([s_k, 4])                     # second sequence: 5 padded keys
+    keep = (torch.arange(s_k) < lengths[:, None])[:, None, None, :]
+    got = _out(ns.scaled_dot_product_attention(q, k, v, mask=keep))
+    exp = F.scaled_dot_product_attention(q, k, v, attn_mask=keep)
+    assert tuple(got.shape) == (B, H, s_q, d_v), \
+        f"expected {(B, H, s_q, d_v)} for S_q={s_q}, S_k={s_k}, d_v={d_v}, got {tuple(got.shape)}"
+    assert torch.allclose(got, exp, atol=1e-5), (
+        "with a key-padding mask (True = attend) the output disagrees with "
+        f"F.scaled_dot_product_attention (max diff {(got - exp).abs().max():.2e})")
+
+
 CHECKS = [check_matches_torch_attention, check_scaling_is_applied,
-          check_mask_blocks_positions]
+          check_mask_blocks_positions, check_padding_mask_and_cross_attention]

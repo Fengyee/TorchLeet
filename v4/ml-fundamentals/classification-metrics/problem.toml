@@ -1,0 +1,25 @@
+id = "classification-metrics"
+title = "Classification Metrics from Scratch"
+description = "Implement confusion matrix, macro/micro precision-recall-F1, tie-aware ROC-AUC, step-wise average precision and expected calibration error in vectorized PyTorch."
+difficulty = "medium"
+number = 7
+set = "v4"
+category = "ml-fundamentals"
+tracks = ["basics"]
+
+# GENERATED from the grader spec — edit python/torchleet/problems/*.py, then run: generate.py hints
+hints = [
+  "Everything except ECE falls out of counting: a confusion matrix gives per-class TP/FP/FN, and for ranking metrics one sort of the scores gives every threshold at once. Encode each (true, pred) pair as a single integer so one counting op builds the whole matrix.",
+  "TP is the diagonal, FP the column sums minus the diagonal, FN the row sums minus the diagonal. For AUC, rank all scores (tied scores share their average rank); the rank-sum of the positives gives the Mann-Whitney U. For AP, sort descending, cumsum the labels, and evaluate precision and recall only at the LAST position of each run of equal scores.",
+  "AUC = (sum of positive ranks - n_pos(n_pos+1)/2) / (n_pos * n_neg). AP = sum over distinct thresholds of (recall step) x precision. ECE: bin index from the max probability with torch.bucketize on the interior edges (right-closed bins), then per-bin sums of correct and confidence via bincount with weights; ECE = sum_b |sum(correct) - sum(conf)| / N.",
+]
+
+[notebooks]
+question = "classification-metrics.ipynb"
+solution = "classification-metrics_SOLN.ipynb"
+
+[grading]
+tier = "A"        # A = auto-graded by check(), C = not graded
+entries = ["confusion_matrix", "precision_recall_f1", "roc_auc", "average_precision", "expected_calibration_error"]
+extras = []
+device = "cpu"

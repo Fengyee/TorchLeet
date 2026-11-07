@@ -14,6 +14,7 @@ hints = [
   "Generation: repeat_interleave each prompt group_size times so one prompt's completions sit in a contiguous block, then sample token by token.",
   "Advantages are normalised INSIDE each group: reshape rewards to (num_prompts, group_size), subtract the row mean, divide by the row std + eps. No value model, no global mean.",
   "grpo_loss = -mean(min(ratio*A, clip(ratio, 1-eps, 1+eps)*A)) + beta*KL, with ratio = exp(policy_logps - old_logps) and A broadcast over the tokens of its sequence.",
+  "The KL is the paper's per-token estimator: with d = ref_logps - policy_logps, KL = exp(d) - d - 1, averaged over tokens. mean(policy_logps - ref_logps) can go negative and has zero expected gradient as a loss.",
 ]
 
 [notebooks]
@@ -21,7 +22,7 @@ question = "grpo.ipynb"
 solution = "grpo_SOLN.ipynb"
 
 [grading]
-tier = "A"        # A=auto-graded B=partial C=not auto-graded (SEEDED, confirm)
+tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["generate_group_completions", "compute_group_advantages", "grpo_loss"]
 extras = []
 device = "cpu"

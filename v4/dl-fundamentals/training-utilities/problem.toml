@@ -1,0 +1,25 @@
+id = "training-utilities"
+title = "Training Utilities: SGD, Warmup + Cosine LR, Gradient Clipping, EMA"
+description = "Implement torch.optim.SGD (momentum, Nesterov, weight decay), a linear-warmup + cosine LR schedule, global-norm gradient clipping and a weight EMA that match PyTorch exactly."
+difficulty = "medium"
+number = 11
+set = "v4"
+category = "dl-fundamentals"
+tracks = ["basics"]
+
+# GENERATED from the grader spec — edit python/torchleet/problems/*.py, then run: generate.py hints
+hints = [
+  "Write each update rule down before coding: what does PyTorch store in the momentum buffer, and is weight decay added before or after momentum? For the schedule, sketch lr(step) and mark warmup_steps and total_steps.",
+  "SGD: g = grad + wd*p; buf = g on the first step, else buf = mu*buf + g; the step direction is g + mu*buf for Nesterov, buf otherwise; skip params whose .grad is None. Clipping: ONE norm over all gradients together, sqrt(sum of squared entries).",
+  "model.parameters() is a one-shot generator: list() it if you iterate twice. Clip coefficient = max_norm / (total_norm + 1e-6), applied only when it is < 1; return the pre-clip norm. EMA: keep detached clones, update under torch.no_grad() with s.mul_(decay).add_(p, alpha=1 - decay), copy buffers as-is.",
+]
+
+[notebooks]
+question = "training-utilities.ipynb"
+solution = "training-utilities_SOLN.ipynb"
+
+[grading]
+tier = "A"        # A = auto-graded by check(), C = not graded
+entries = ["SGD", "warmup_cosine_lr", "clip_grad_norm_", "EMA"]
+extras = []
+device = "cpu"

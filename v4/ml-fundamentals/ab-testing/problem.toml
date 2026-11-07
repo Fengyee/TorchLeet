@@ -1,0 +1,25 @@
+id = "ab-testing"
+title = "Online Experiment Statistics: z-test, Bootstrap, Power, SRM and CUPED"
+description = "Analyse an online A/B test in PyTorch: pooled two-proportion z-test and Wald CI, a vectorized percentile bootstrap, power-based sample size, a sample-ratio-mismatch check and CUPED variance reduction."
+difficulty = "medium"
+number = 36
+set = "v4"
+category = "ml-fundamentals"
+tracks = ["basics"]
+
+# GENERATED from the grader spec — edit python/torchleet/problems/*.py, then run: generate.py hints
+hints = [
+  "Every function here is a few lines of float64 arithmetic. The standard normal CDF is torch.special.ndtr, its inverse (z_{1-alpha/2}) is torch.special.ndtri, and two-sided tail probabilities are torch.special.erfc(|z| / sqrt(2)). A chi-square with 1 degree of freedom is the square of a standard normal. Convert inputs with torch.as_tensor(x, dtype=torch.float64): int tensors divide into float32 otherwise.",
+  "The test asks 'how surprising is this diff if p_A == p_B?', so its SE uses the POOLED rate (x_A + x_B) / (n_A + n_B). The CI is built around the observed rates, so it uses the UNPOOLED SE. Bootstrap: draw an (n_boot, n_a) index matrix for a and a separate (n_boot, n_b) one for b with torch.randint(..., generator=generator), gather, take the row means, then torch.quantile at alpha/2 and 1 - alpha/2. CUPED's theta is the OLS slope of y on x.",
+  "Sample size: the test rejects when |diff| > z_{1-alpha/2} * SE0. Require that to happen with probability `power` when the true diff is d: sqrt(n) * |d| = z_{1-alpha/2} * sqrt(2 pbar (1 - pbar)) + z_power * sqrt(p1 q1 + p2 q2). Solve for n and take math.ceil. SRM: expected counts are N * r and N * (1 - r), chi2 = sum (obs - exp)^2 / exp, and p = erfc(sqrt(chi2 / 2)). CUPED: theta = mean(xc * yc) / mean(xc * xc) with xc = x - mean(x); return y - theta * xc.",
+]
+
+[notebooks]
+question = "ab-testing.ipynb"
+solution = "ab-testing_SOLN.ipynb"
+
+[grading]
+tier = "A"        # A = auto-graded by check(), C = not graded
+entries = ["two_proportion_ztest", "diff_ci", "bootstrap_ci", "sample_size_per_arm", "srm_pvalue", "cuped"]
+extras = []
+device = "cpu"

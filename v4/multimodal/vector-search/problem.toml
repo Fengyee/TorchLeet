@@ -1,0 +1,25 @@
+id = "vector-search"
+title = "Vector Search: Chunked Exact Top-k, an IVF Index and Recall@k"
+description = "Implement memory-bounded exact top-k search (cosine, dot, L2), an IVF approximate index with an inline k-means quantizer, and recall@k, as used for image-text retrieval and RAG."
+difficulty = "medium"
+number = 23
+set = "v4"
+category = "multimodal"
+tracks = ["basics"]
+
+# GENERATED from the grader spec — edit python/torchleet/problems/*.py, then run: generate.py hints
+hints = [
+  "Exact search is one matrix multiply per database chunk: compute a (Q, chunk) score block, keep its best k, and merge that with the best k found so far (concatenate the two candidate sets and take top-k again). Remember to add the chunk's start offset to the indices.",
+  "cosine = dot product of L2-normalized vectors; l2 = ||q||^2 - 2 q.d + ||d||^2, clamped at 0, and you want the SMALLEST k (topk(largest=False)). A chunk can be smaller than k, so take min(k, chunk) there.",
+  "IVF: k-means (random initial centroids from the data, alternate assign / recompute the mean, keep a centroid whose cluster went empty) gives nlist centroids; add() appends each vector's global id to its nearest centroid's list; search() scores only the vectors in the nprobe nearest lists and pads with id -1 and the worst score. recall@k = |approx ∩ exact| / k averaged over queries (order does not matter, -1 never counts).",
+]
+
+[notebooks]
+question = "vector-search.ipynb"
+solution = "vector-search_SOLN.ipynb"
+
+[grading]
+tier = "A"        # A = auto-graded by check(), C = not graded
+entries = ["exact_topk", "IVFIndex", "recall_at_k"]
+extras = []
+device = "cpu"

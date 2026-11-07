@@ -11,7 +11,8 @@ tracks = ["advanced"]
 # GENERATED from the grader spec — edit python/torchleet/problems/*.py, then run: generate.py hints
 hints = [
   "Subclass torch.optim.Optimizer and keep per-parameter state in self.state[p] — it starts as an empty dict, so initialize it on the first step. Do the whole update under @torch.no_grad() with in-place ops (mul_, add_, addcmul_, addcdiv_).",
-  "Muon: buf = momentum*buf + grad (Nesterov uses grad + momentum*buf as the update), orthogonalize with your newton_schulz, scale by sqrt(max(m,n)/min(m,n)), and only for ndim >= 2 — 1D params get the AdamW fallback. newton_schulz: divide X by its Frobenius norm, then iterate X = a*X + b*(X@X.T)@X + c*(X@X.T)^2@X with a=15/8, b=-5/4, c=3/8.",
+  "newton_schulz: transpose a tall X so X @ X.T is the small Gram matrix, divide by the Frobenius norm (+ eps) so every singular value is <= 1, then repeat A = X @ X.T; X = a*X + (b*A + c*A@A) @ X with Muon's (a, b, c) = (3.4445, -4.7750, 2.0315). The singular values end up in about [0.7, 1.2] — that is expected, not a bug.",
+  "Muon on a matrix: buf = momentum*buf + grad, update = grad + momentum*buf (Nesterov) or buf; flatten it to (len(p), -1), orthogonalize with newton_schulz, scale by sqrt(max(1, rows/cols)), decay p by (1 - lr*weight_decay), then p -= lr * scale * update reshaped to p.shape. Only ndim >= 2 — 1D params get the AdamW fallback.",
 ]
 
 [notebooks]
@@ -19,7 +20,7 @@ question = "muon.ipynb"
 solution = "muon_SOLN.ipynb"
 
 [grading]
-tier = "A"        # A=auto-graded B=partial C=not auto-graded (SEEDED, confirm)
+tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["newton_schulz", "MyMuon"]
 extras = []
 device = "cpu"

@@ -44,5 +44,32 @@ def check_separable_data_is_classified(ns):
         f"only {float(acc):.0%} accuracy on well-separated clusters"
 
 
+def check_majority_vote_over_k_neighbours(ns):
+    """Points on a line, query at the origin. The nearest neighbour is class 0, the
+    3 nearest are mostly class 1, the 5 nearest mostly class 0 — so a solution that
+    ignores k, or only looks at the closest point, gets one of these wrong. No ties."""
+    Xtr = torch.tensor([[1.0, 0.0], [2.0, 0.0], [3.0, 0.0],
+                        [10.0, 0.0], [11.0, 0.0], [12.0, 0.0]])
+    ytr = torch.tensor([0, 1, 1, 0, 0, 0])
+    Xte = torch.zeros(1, 2)
+    for k, want in ((1, 0), (3, 1), (5, 0)):
+        got = int(ns.knn_predict(Xtr, ytr, Xte, k=k).reshape(-1)[0])
+        assert got == want, (
+            f"k={k}: the {k} nearest labels are {ytr[:k].tolist()}, so the majority "
+            f"vote is {want}, got {got}")
+
+
+def check_uses_euclidean_distance(ns):
+    """(2, 2) is nearer the origin than (3, 0) under L2 (2.83 < 3) but farther
+    under L1 (4 > 3)."""
+    Xtr = torch.tensor([[3.0, 0.0], [2.0, 2.0]])
+    ytr = torch.tensor([0, 1])
+    got = int(ns.knn_predict(Xtr, ytr, torch.zeros(1, 2), k=1).reshape(-1)[0])
+    assert got == 1, (
+        "the nearest training point to the origin by Euclidean distance is (2, 2) "
+        "(label 1); (3, 0) is only nearer under L1/Manhattan distance")
+
+
 CHECKS = [check_output_shape_and_dtype, check_k_of_one_returns_nearest_label,
-          check_separable_data_is_classified]
+          check_separable_data_is_classified, check_majority_vote_over_k_neighbours,
+          check_uses_euclidean_distance]

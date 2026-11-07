@@ -12,7 +12,7 @@ tracks = ["basics"]
 hints = [
   "config_init returns the initializer *function*, it does not run it — you use it as `model.apply(config_init('xavier'))`.",
   "Each initializer takes one module and should only touch it when it is an nn.Conv2d or nn.Linear; apply() walks containers and activations too.",
-  "torch.nn.init has all four: zeros_, normal_, xavier_normal_ (variance 1/n) and kaiming_normal_ (variance 2/n). Do not forget the bias.",
+  "torch.nn.init has all four: zeros_, normal_, xavier_normal_ (variance 2/(fan_in + fan_out)) and kaiming_normal_ with nonlinearity='relu' (variance 2/fan_in). Do not forget the bias.",
 ]
 
 [notebooks]
@@ -20,7 +20,7 @@ question = "CNN_ParamInit.ipynb"
 solution = "CNN_ParamInit_SOLN.ipynb"
 
 [grading]
-tier = "C"        # A=auto-graded B=partial C=not auto-graded (SEEDED, confirm)
+tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["config_init"]
-extras = ["torchvision"]
+extras = []
 device = "cpu"

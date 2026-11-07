@@ -1,8 +1,8 @@
 id = "gan"
 legacy_ids = ["v1-27"]
 title = "Write a GAN"
-description = "Implement a generative adversarial network with competing generator and discriminator networks trained via minimax loss."
-difficulty = "hard"
+description = "Implement a generative adversarial network: competing generator and discriminator networks trained adversarially with binary cross-entropy and the non-saturating generator loss."
+difficulty = "medium"
 frequency = "emerging"   # very-likely | common | emerging (derived from company reports)
 number = 27
 set = "v1"
@@ -13,6 +13,7 @@ hints = [
   "Generator(input_dim, output_dim) maps a latent vector to one fake sample; Discriminator(input_dim) maps a sample to a single number.",
   "End the generator with Tanh so samples live in [-1, 1], and the discriminator with Sigmoid so its output is a probability BCELoss can take.",
   "When you train the generator do NOT detach the fake batch — the gradient has to flow back through the discriminator into the generator.",
+  "Training loop: D step = BCE(D(real), 1) + BCE(D(G(z).detach()), 0); G step = BCE(D(G(z)), 1) on a fake batch that is NOT detached (fresh noise, or the same G(z) the D step detached) — the non-saturating -log D(G(z)), not log(1 - D(G(z))). zero_grad the optimizer you are about to step before its backward().",
 ]
 
 [notebooks]
@@ -20,7 +21,7 @@ question = "GAN.ipynb"
 solution = "GAN_SOLN.ipynb"
 
 [grading]
-tier = "C"        # A=auto-graded B=partial C=not auto-graded (SEEDED, confirm)
+tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["Generator", "Discriminator"]
 extras = []
 device = "cpu"

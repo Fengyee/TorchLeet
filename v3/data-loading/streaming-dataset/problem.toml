@@ -6,12 +6,19 @@ frequency = "common"
 category = "data-loading"
 tracks = ["basics"]
 
+# GENERATED from the grader spec — edit python/torchleet/problems/*.py, then run: generate.py hints
+hints = [
+  "Open the file inside __iter__ and loop over it — a Python file object is a lazy line iterator. Parse each line into x (all but the last value) and a scalar y (the last one) and yield them.",
+  "Every DataLoader worker runs its own copy of __iter__. torch.utils.data.get_worker_info() is None in the main process; inside a worker it has .id and .num_workers.",
+  "Shard by line number: enumerate the lines and keep only those with line_idx % num_workers == worker_id, treating the main process as worker 0 of 1.",
+]
+
 [notebooks]
 question = "streaming-dataset.ipynb"
 solution = "streaming-dataset_SOLN.ipynb"
 
 [grading]
-tier = "C"
-entries = []
+tier = "A"        # A = auto-graded by check(), C = not graded
+entries = ["StreamingDataset"]
 extras = []
 device = "cpu"

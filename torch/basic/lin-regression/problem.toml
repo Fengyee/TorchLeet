@@ -1,7 +1,7 @@
 id = "lin-regression"
 legacy_ids = ["v1-1"]
 title = "Implement Linear Regression"
-description = "Build a linear regression model from scratch using PyTorch tensors and autograd, fitting a line to synthetic data with gradient descent."
+description = "Build a linear regression model as an nn.Module, fit it to synthetic data with MSE loss and gradient descent, and check it against the closed-form least-squares solution."
 difficulty = "basic"
 frequency = "emerging"   # very-likely | common | emerging (derived from company reports)
 number = 1
@@ -20,7 +20,7 @@ question = "lin-regression.ipynb"
 solution = "lin-regression_SOLN.ipynb"
 
 [grading]
-tier = "C"        # A=auto-graded B=partial C=not auto-graded (SEEDED, confirm)
+tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["LinearRegressionModel"]
 extras = []
 device = "cpu"

@@ -14,6 +14,7 @@ hints = [
   "Keep two lists: waiting_queue and active_batch. Each step() fills free slots from the queue first, then runs the model, then evicts whatever finished.",
   "A request is done when it emits eos_token_id OR len(generated_ids) reaches max_gen_len — check both after appending the token.",
   "step() should report whether work remains (active or waiting), so run() can simply loop `while self.step(model): pass`.",
+  "Batch the forward pass: right-pad every active sequence to the longest with eos_token_id, call the model ONCE on (num_active, max_len), and read row i's logits at its own last real position, length_i - 1. A causal model never looks at pads that come after a sequence.",
 ]
 
 [notebooks]
@@ -21,7 +22,7 @@ question = "continuous-batching.ipynb"
 solution = "continuous-batching_SOLN.ipynb"
 
 [grading]
-tier = "C"        # A=auto-graded B=partial C=not auto-graded (SEEDED, confirm)
+tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["Request", "ContinuousBatchScheduler"]
 extras = []
 device = "cpu"

@@ -12,3 +12,4 @@ mcp-server/node_modules/
 mcp-server/dist/
 
 __pycache__
+.ipynb_checkpoints/

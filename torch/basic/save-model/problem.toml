@@ -1,19 +1,26 @@
 id = "save-model"
 legacy_ids = ["v1-7"]
 title = "Save and Load PyTorch Model"
-description = "Serialize model weights with state_dict and reload them, handling device mapping and architecture changes."
+description = "Save a model's state_dict and reload it for inference (map_location, weights_only, eval mode), then save and restore a full training checkpoint with optimizer state."
 difficulty = "basic"
 frequency = "emerging"   # very-likely | common | emerging (derived from company reports)
 number = 7
 set = "v1"
 tracks = ["basics"]
 
+# GENERATED from the grader spec — edit python/torchleet/problems/*.py, then run: generate.py hints
+hints = [
+  "Everything here is torch.save / torch.load plus the state_dict methods. A state dict maps names to tensors — parameters and buffers such as BatchNorm's running statistics — so it loads without your class's code being pickled.",
+  "load_for_inference builds a fresh model with model_class(), loads the file with torch.load(path, map_location='cpu', weights_only=True), calls load_state_dict and then eval() — Dropout and BatchNorm behave differently in training mode.",
+  "A checkpoint is one dict with the keys 'epoch', 'model_state_dict' and 'optimizer_state_dict'. load_checkpoint calls load_state_dict on the model and on the optimizer it was given (not a new one) and returns checkpoint['epoch'] — without the optimizer state, momentum and Adam's moments restart from zero.",
+]
+
 [notebooks]
 question = "save_model.ipynb"
 solution = "save_model_SOLN.ipynb"
 
 [grading]
-tier = "C"        # A=auto-graded B=partial C=not auto-graded (SEEDED, confirm)
-entries = []
+tier = "A"        # A = auto-graded by check(), C = not graded
+entries = ["save_weights", "load_for_inference", "save_checkpoint", "load_checkpoint"]
 extras = []
 device = "cpu"

@@ -2,7 +2,7 @@ id = "sinusoidal-positional-embedding"
 legacy_ids = ["v2-10"]
 title = "Implement Sinusoidal Embeddings"
 description = "Build the fixed sinusoidal positional encoding from 'Attention Is All You Need' using sin/cos at different frequencies."
-difficulty = "medium"
+difficulty = "easy"
 frequency = "emerging"   # very-likely | common | emerging (derived from company reports)
 number = 10
 set = "v2"
@@ -21,7 +21,7 @@ question = "sinusoidal-q7-Question.ipynb"
 solution = "sinusoidal-q7.ipynb"
 
 [grading]
-tier = "A"        # A=auto-graded B=partial C=not auto-graded (SEEDED, confirm)
+tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["SinusoidalPositionalEmbedding"]
 extras = []
 device = "cpu"

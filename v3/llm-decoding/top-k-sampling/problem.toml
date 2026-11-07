@@ -2,7 +2,7 @@ id = "top-k-sampling"
 legacy_ids = ["v3-8"]
 title = "Implement Top-k Sampling"
 description = "Select the k highest-probability tokens, zero out the rest, renormalize, and sample for controlled text generation."
-difficulty = "medium"
+difficulty = "easy"
 frequency = "very-likely"   # very-likely | common | emerging (derived from company reports)
 number = 8
 set = "v3"
@@ -13,7 +13,7 @@ tracks = ["llm-path"]
 hints = [
   "Keep the k largest logits and make the rest impossible to select.",
   "Setting the discarded logits to -inf before the softmax does that cleanly.",
-  "torch.topk gives you both the values and their indices.",
+  "torch.topk gives you both the values and their indices. Clamp k to the vocabulary size first — torch.topk raises if k > vocab_size.",
 ]
 
 [notebooks]
@@ -21,7 +21,7 @@ question = "top-k-sampling.ipynb"
 solution = "top-k-sampling_SOLN.ipynb"
 
 [grading]
-tier = "A"        # A=auto-graded B=partial C=not auto-graded (SEEDED, confirm)
+tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["top_k_sample"]
 extras = []
 device = "cpu"

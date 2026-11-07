@@ -2,7 +2,12 @@
 target pass, accept/reject so the output distribution is unchanged.
 
 The load-bearing checks come from the algorithm's own guarantee rather than from
-any reference implementation:
+any reference implementation. The decoding functions are exercised on toy causal
+LMs the grader owns (_PrefixLM: every row of logits is a permutation of 0, 0.5,
+1, ..., so the top two are always 0.5 apart), never on the solver's own models:
+how the solver initialises DraftModel/TargetModel (PyTorch defaults, GPT-style
+std 0.02, ...) must not decide whether a correct algorithm passes. The solver's
+model classes get their own checks (shapes, causality, using the input).
 
 * run speculative_decode with the draft model *being* the target model. Then
   p(x)/q(x) == 1 for every proposal, so a correct rejection rule accepts all K,
@@ -13,7 +18,15 @@ any reference implementation:
   times and its empirical distribution must sit far closer to the *target*
   model's next-token distribution than to the draft's. An implementation that
   just trusts the draft, or that drops the corrected-residual resampling, fails.
+* the full guarantee: with hand-built bigram draft/target tables on a 3-token
+  vocabulary, the JOINT distribution of the first three generated tokens (K=2,
+  so a fully accepted round reaches the bonus token) must equal the target's
+  exact joint, computed by enumeration. This is what catches a bonus token drawn
+  from the wrong distribution, a residual that is p instead of max(0, p - q), or
+  a round that keeps going after its first rejection — bugs the first-token
+  check cannot see.
 """
+import itertools
 import torch
 import torch.nn.functional as F
 
@@ -54,6 +67,42 @@ def _next_probs(model, ids, temperature=1.0):
         return F.softmax(model(ids)[0, -1, :] / temperature, dim=-1)
 
 
+JITTER = 1.5
+
+
+class _PrefixLM(torch.nn.Module):
+    """A causal toy LM owned by the grader: (B, S) ids -> (B, S, VOCAB) logits.
+
+    Position t's logits are one of `rows` fixed rows, picked by a hash of tokens
+    0..t and of t itself, so they depend on the whole prefix (a decoder that only
+    feeds the last token gets different answers) but never on later tokens. Each
+    row is a permutation of 0, 0.5, 1, ..., (VOCAB - 1) / 2: the top two logits are
+    always 0.5 apart, so temperature 1e-3 is exactly greedy, while temperature 1
+    is genuinely random (top token ~39%). jitter > 0 adds Gaussian noise to the
+    table, which makes a draft that only roughly agrees with the same-seed target."""
+
+    def __init__(self, seed, rows=61, jitter=0.0):
+        super().__init__()
+        g = torch.Generator().manual_seed(seed)
+        table = torch.stack([torch.randperm(VOCAB, generator=g).float() * 0.5
+                             for _ in range(rows)])
+        if jitter:          # a draft that roughly agrees with its target, not exactly
+            table = table + jitter * torch.randn(table.shape, generator=g)
+        self.table = torch.nn.Parameter(table, requires_grad=False)
+        self.rows = rows
+
+    def forward(self, input_ids):
+        ids = input_ids.long()
+        pos = torch.arange(ids.shape[1], device=ids.device)
+        h = (ids * 7 + 1).cumsum(dim=1) * 13 + pos * 5
+        return self.table[h % self.rows]
+
+
+# The draft is the target's table plus noise: they agree on the rough ranking but
+# not exactly, so a round mixes acceptances and rejections.
+_TARGET_LM, _DRAFT_LM = _PrefixLM(seed=101).eval(), _PrefixLM(seed=101, jitter=JITTER).eval()
+
+
 # --------------------------------------------------------------------------
 # DraftModel / TargetModel
 # --------------------------------------------------------------------------
@@ -79,9 +128,10 @@ def check_models_are_prefix_consistent(ns):
     for name, m in (("DraftModel", draft), ("TargetModel", target)):
         with torch.no_grad():
             full = m(ids)
+            tol = 1e-5 * max(1.0, float(full.abs().max()))   # float noise scales with the logits
             for cut in (3, 5, 7):
                 part = m(ids[:, :cut])
-                assert torch.allclose(part, full[:, :cut], atol=1e-5), (
+                assert torch.allclose(part, full[:, :cut], atol=tol), (
                     f"{name}: scoring the first {cut} tokens alone gave different "
                     f"logits than scoring the whole sequence. Speculative decoding "
                     f"verifies K drafts from ONE target pass, so the logits at "
@@ -90,14 +140,25 @@ def check_models_are_prefix_consistent(ns):
 
 
 def check_models_respond_to_their_input(ns):
+    """The last-position logits must depend on the last token. Measured relative to
+    the logits' own scale, so a model initialised with tiny weights (GPT-style std
+    0.02) still passes as long as the input reaches the output at all."""
     draft, target = _models(ns, seed=3)
-    a = torch.randint(0, VOCAB, (1, 5))
-    b = a.clone()
-    b[0, -1] = (int(b[0, -1]) + 1) % VOCAB
+    g = torch.Generator().manual_seed(3)
+    a = torch.randint(0, VOCAB, (1, 5), generator=g)
     for name, m in (("DraftModel", draft), ("TargetModel", target)):
         with torch.no_grad():
-            assert not torch.allclose(m(a)[0, -1], m(b)[0, -1], atol=1e-6), \
-                f"{name}'s last-position logits did not change when the last token changed"
+            base = m(a)[0, -1].detach()
+            moved = 0.0
+            for shift in (1, 5, 11):
+                b = a.clone()
+                b[0, -1] = (int(b[0, -1]) + shift) % VOCAB
+                moved = max(moved, float((m(b)[0, -1].detach() - base).abs().max()))
+            scale = float(base.abs().max())
+        assert moved > 1e-6 * scale and moved > 0.0, (
+            f"{name}'s last-position logits did not change when the last token "
+            f"changed (largest change {moved:.2e} against logits of size {scale:.2e}) "
+            f"— the model is not reading its input")
 
 
 # --------------------------------------------------------------------------
@@ -118,8 +179,9 @@ def check_standard_decode_extends_the_prompt(ns):
 
 
 def check_standard_decode_is_greedy_at_low_temperature(ns):
-    """Temperature -> 0 collapses the softmax onto the argmax."""
-    _, target = _models(ns, seed=5)
+    """Temperature -> 0 collapses the softmax onto the argmax. Run on the grader's
+    LM, whose top two logits are always 0.5 apart, so 1e-3 is exactly greedy."""
+    target = _TARGET_LM
     prompt = _prompt(3, seed=6)
     with torch.no_grad():
         got = ns.standard_decode(target, prompt, 6, temperature=1e-3)
@@ -131,11 +193,12 @@ def check_standard_decode_is_greedy_at_low_temperature(ns):
         "at temperature 1e-3 every next-token distribution is effectively one-hot, "
         "so decoding must follow the model's argmax path. Expected "
         f"{cur[0].tolist()}, got {got[0].tolist()} — check that the temperature "
-        "divides the LOGITS before the softmax.")
+        "divides the LOGITS before the softmax, and that every step feeds the "
+        "whole sequence so far, not just the last token.")
 
 
 def check_standard_decode_samples_at_temperature_one(ns):
-    _, target = _models(ns, seed=7)
+    target = _TARGET_LM
     prompt = _prompt(3, seed=8)
     torch.manual_seed(0)
     with torch.no_grad():
@@ -158,7 +221,7 @@ def _spec(ns, draft, target, prompt, k=K, temperature=1.0):
 
 
 def check_speculative_output_is_well_formed(ns):
-    draft, target = _models(ns, seed=9)
+    draft, target = _DRAFT_LM, _TARGET_LM
     prompt = _prompt(4, seed=10)
     for _ in range(20):
         with torch.no_grad():
@@ -175,7 +238,7 @@ def check_speculative_output_is_well_formed(ns):
 
 def check_identical_models_accept_every_draft(ns):
     """p == q makes the acceptance ratio exactly 1, so nothing may be rejected."""
-    _, target = _models(ns, seed=11)
+    target = _TARGET_LM
     prompt = _prompt(4, seed=12)
     torch.manual_seed(0)
     with torch.no_grad():
@@ -199,7 +262,7 @@ def check_identical_models_accept_every_draft(ns):
 def check_speculative_reproduces_greedy_decoding(ns):
     """The guarantee, in its cleanest form: same model + no sampling noise means
     speculative decoding and plain decoding must emit the same tokens."""
-    _, target = _models(ns, seed=13)
+    target = _TARGET_LM
     prompt = _prompt(4, seed=14)
     with torch.no_grad():
         toks, n = _spec(ns, target, target, prompt, temperature=1e-3)
@@ -218,13 +281,15 @@ def _tv(a, b):
 
 def check_emitted_token_follows_the_target_distribution(ns):
     """Sample the first emitted token many times: it must be distributed as the
-    TARGET's next-token distribution, not the draft's."""
-    temp = 0.2                       # sharpens both models so they disagree clearly
-    draft, target = _models(ns, seed=15)
+    TARGET's next-token distribution, not the draft's. At this prompt and
+    temperature the two differ by TV 0.39 while a draft token is accepted ~61% of
+    the time, so both the acceptance test and the residual resample matter; and
+    T != 1 catches a temperature applied to only one of p and q."""
+    temp = 0.5
+    draft, target = _DRAFT_LM, _TARGET_LM
     prompt = _prompt(4, seed=16)
     p = _next_probs(target, prompt, temp)
     q = _next_probs(draft, prompt, temp)
-    assert _tv(p, q) > 0.25, "internal: draft and target should differ enough to be telling"
 
     trials = 3000
     counts = torch.zeros(VOCAB)
@@ -241,28 +306,87 @@ def check_emitted_token_follows_the_target_distribution(ns):
         f"TARGET model's ({to_target:.3f}). Speculative decoding must not shift the "
         f"output distribution: reject with probability 1 - p/q and resample from "
         f"the normalised residual max(0, p - q).")
-    assert to_target < 0.12, (
+    assert to_target < 0.06, (
         f"the first emitted token's empirical distribution is {to_target:.3f} away "
         f"(total variation) from the target model's next-token distribution over "
-        f"{trials} rounds; sampling noise alone should keep this under ~0.06. The "
+        f"{trials} rounds; sampling noise alone keeps this under ~0.04. The "
         f"accept/reject rule is biased.")
 
 
 def check_speculative_accepts_less_when_the_draft_disagrees(ns):
     """A mismatched draft must actually get rejected sometimes."""
-    draft, target = _models(ns, seed=17)
+    draft, target = _DRAFT_LM, _TARGET_LM
     prompt = _prompt(4, seed=18)
     torch.manual_seed(1)
     with torch.no_grad():
         accepted = [_spec(ns, draft, target, prompt)[1] for _ in range(60)]
     assert min(accepted) < K, (
-        "an independently initialised draft model proposed 60 rounds of tokens and "
+        "a draft model that only roughly agrees with the target proposed 60 rounds and "
         f"every single one of the {K} drafts was accepted every time — the "
         "rejection test is not doing anything (it should reject with probability "
         "1 - min(1, p/q))")
     assert max(accepted) > 0, (
         "not a single draft token was ever accepted over 60 rounds — the "
         "acceptance ratio is probably inverted (it is p/q, target over draft)")
+
+
+_P = torch.tensor([[0.6, 0.3, 0.1], [0.2, 0.2, 0.6], [0.1, 0.7, 0.2]])   # target bigram
+_Q = torch.tensor([[0.2, 0.3, 0.5], [0.5, 0.4, 0.1], [0.4, 0.2, 0.4]])   # draft bigram
+
+
+class _BigramLM(torch.nn.Module):
+    """(B, S) ids -> (B, S, 3) logits; position t's logits depend on token t only."""
+
+    def __init__(self, table):
+        super().__init__()
+        self.log_table = torch.nn.Parameter(table.log(), requires_grad=False)
+
+    def forward(self, input_ids):
+        return self.log_table[input_ids.long()]
+
+
+def check_output_distribution_equals_the_target_joint(ns):
+    """Generate 3 tokens with repeated speculative rounds (K=2) and compare the
+    empirical joint over all 27 outcomes with the target's exact joint.
+    Sampling noise keeps the TV distance under ~0.045 at n=5000 (99.99th
+    percentile); a residual of p instead of max(0, p - q) lands at ~0.2, a bonus
+    token from the draft at ~0.15, a greedy bonus at ~0.12."""
+    n_tok, k, trials = 3, 2, 5000
+    prompt = torch.tensor([[1, 0]])
+    exact = torch.zeros(3 ** n_tok)
+    for i, xs in enumerate(itertools.product(range(3), repeat=n_tok)):
+        prob, prev = 1.0, int(prompt[0, -1])
+        for x in xs:
+            prob, prev = prob * float(_P[prev, x]), x
+        exact[i] = prob
+
+    draft, target = _BigramLM(_Q).eval(), _BigramLM(_P).eval()
+    counts = torch.zeros(3 ** n_tok)
+    torch.manual_seed(0)
+    with torch.no_grad():
+        for _ in range(trials):
+            ids, out = prompt, []
+            while len(out) < n_tok:
+                toks, _ = _spec(ns, draft, target, ids, k=k, temperature=1.0)
+                assert toks, "speculative_decode emitted no tokens"
+                out += toks
+                ids = torch.cat([ids, torch.tensor([toks])], dim=1)
+            idx = 0
+            for x in out[:n_tok]:
+                idx = idx * 3 + x
+            counts[idx] += 1
+    emp = counts / trials
+    d = _tv(emp, exact)
+    worst = int((emp - exact).abs().argmax())
+    seq = list(itertools.product(range(3), repeat=n_tok))[worst]
+    assert d < 0.07, (
+        f"the first {n_tok} generated tokens are {d:.3f} away (total variation) from "
+        f"the target model's exact joint distribution over {trials} runs; sampling "
+        f"noise alone stays under ~0.045. Worst sequence {list(seq)}: "
+        f"{float(emp[worst]):.3f} sampled vs {float(exact[worst]):.3f} exact. Check "
+        f"the three pieces: accept with prob min(1, p/q); on the first rejection "
+        f"sample from normalise(max(0, p - q)) and STOP the round; if all K are "
+        f"accepted, sample the bonus token from the target's last position.")
 
 
 CHECKS = [
@@ -277,4 +401,5 @@ CHECKS = [
     check_speculative_reproduces_greedy_decoding,
     check_emitted_token_follows_the_target_distribution,
     check_speculative_accepts_less_when_the_draft_disagrees,
+    check_output_distribution_equals_the_target_joint,
 ]

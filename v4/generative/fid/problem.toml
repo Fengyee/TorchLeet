@@ -1,0 +1,25 @@
+id = "fid"
+title = "Fréchet Inception Distance (FID) from Features"
+description = "Compute feature statistics and the Fréchet distance between two Gaussians — the FID math — stably in float64 via a symmetric eigendecomposition."
+difficulty = "easy"
+number = 20
+set = "v4"
+category = "generative"
+tracks = ["advanced"]
+
+# GENERATED from the grader spec — edit python/torchleet/problems/*.py, then run: generate.py hints
+hints = [
+  "FID fits a Gaussian to each feature set, so feature_statistics is just the mean and covariance of the rows. Use the unbiased covariance (divide by N - 1), the same convention as torch.cov(feats.T) and numpy.cov.",
+  "The only hard term is Tr((S1 S2)^{1/2}). S1 S2 is not symmetric, but it is similar to the symmetric PSD matrix S1^{1/2} S2 S1^{1/2}, so both have the same non-negative eigenvalues lambda_i and the trace is sum(sqrt(lambda_i)).",
+  "In float64: S1^{1/2} = V diag(sqrt(clamp(w, 0))) V^T from torch.linalg.eigh(S1); M = S1^{1/2} S2 S1^{1/2}; symmetrise M; then tr_covmean = eigvalsh(M).clamp(min=0).sqrt().sum() and FID = |mu1 - mu2|^2 + tr(S1) + tr(S2) - 2 * tr_covmean. Don't call eigvalsh on S1 @ S2 itself — it is not symmetric.",
+]
+
+[notebooks]
+question = "fid.ipynb"
+solution = "fid_SOLN.ipynb"
+
+[grading]
+tier = "A"        # A = auto-graded by check(), C = not graded
+entries = ["feature_statistics", "frechet_distance"]
+extras = []
+device = "cpu"

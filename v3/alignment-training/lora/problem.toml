@@ -11,9 +11,9 @@ tracks = ["advanced", "llm-path"]
 
 # GENERATED from the grader spec — edit python/torchleet/problems/*.py, then run: generate.py hints
 hints = [
-  "LoRA adds a low-rank detour: output = W@x + (alpha/r) * (x@A)@B.",
-  "A is (d_in, rank) and B is (rank, d_out); the base layer's weights are frozen.",
-  "Merging means W_new = W_old + scaling * (A@B).T — same maths, one matrix.",
+  "LoRA adds a low-rank detour next to the frozen layer: output = linear(x) + (alpha/r) * (x @ A) @ B.",
+  "A is (d_in, rank) and B is (rank, d_out). Start B at zero and A random (bound ~1/sqrt(d_in)): the adapter is a no-op at step 0 but still gets a gradient.",
+  "Merging means W_new = W_old + (alpha/r) * (A @ B).T — the transpose matches nn.Linear's (d_out, d_in) weight layout.",
 ]
 
 [notebooks]
@@ -21,7 +21,7 @@ question = "lora.ipynb"
 solution = "lora_SOLN.ipynb"
 
 [grading]
-tier = "A"        # A=auto-graded B=partial C=not auto-graded (SEEDED, confirm)
+tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["LoRALinear", "apply_lora", "merge_lora"]
 extras = []
 device = "cpu"

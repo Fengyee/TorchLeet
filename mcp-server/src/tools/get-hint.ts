@@ -1,52 +1,49 @@
 import { z } from "zod";
-import { getQuestionById } from "../data/questions.js";
+import { getQuestionById, checkUsage } from "../data/questions.js";
 import { parseNotebook, getDocstrings } from "../lib/notebook-parser.js";
 import { getAuthoredHints } from "../data/hints.generated.js";
+import { notFound } from "./get-question.js";
 
 export const getHintSchema = {
-  id: z.string().describe("Question ID (e.g. 'v3-1')"),
+  id: z.string().describe("Problem id (e.g. 'kv-cache') or legacy id (e.g. 'v3-12')"),
   level: z
     .number()
     .int()
     .min(1)
-    .max(3)
     .default(1)
-    .describe("Hint level: 1=conceptual, 2=function signatures, 3=step-by-step TODOs"),
+    .describe("Hint level, escalating: 1 = gentlest nudge … 3 = most specific (most problems have 3). Earlier levels are repeated."),
 };
 
 export async function getHint(params: { id: string; level: number }) {
   const q = getQuestionById(params.id);
-  if (!q) {
-    return {
-      content: [{ type: "text" as const, text: `Question "${params.id}" not found.` }],
-    };
-  }
+  if (!q) return notFound(params.id);
 
-  const level = params.level ?? 1;
+  const requested = params.level ?? 1;
 
-  // Prefer hints written alongside the grader checks: they are authored for this
-  // problem, and using them keeps the tutor consistent with torchleet.hint().
-  // Fall back to deriving hints from the notebook when a problem has none.
-  const authored = getAuthoredHints(params.id);
+  // Hints authored with the grader checks and copied into the manifest, so the
+  // tutor and `torchleet.hint()` give the same answer. Problems without any fall
+  // back to hints derived from the notebook.
+  const authored = getAuthoredHints(q.id);
   if (authored && authored.length) {
-    const shown = authored.slice(0, Math.min(level, authored.length));
-    return {
-      content: [{
-        type: "text" as const,
-        text: `## Hint for: ${q.title} (Level ${level}/${authored.length})\n\n`
-          + shown.map((h, i) => `${i + 1}. ${h}`).join("\n")
-          + `\n\nCheck your work: \`from torchleet import check\``,
-      }],
-    };
+    const level = Math.min(requested, authored.length);
+    const parts = [
+      `## Hint for: ${q.title} (level ${level} of ${authored.length})`,
+      "",
+      ...authored.slice(0, level).map((h, i) => `${i + 1}. ${h}`),
+    ];
+    if (requested > authored.length) parts.push(`\n(This problem has only ${authored.length} hints.)`);
+    if (level < authored.length) parts.push(`\n---\n*Still stuck after trying? Ask for hint level ${level + 1}.*`);
+    parts.push(
+      q.graded
+        ? `\nCheck your work: \`${checkUsage(q)}\``
+        : "\nNot auto-graded: run the notebook's own checks, then compare with the solution notebook.",
+    );
+    return { content: [{ type: "text" as const, text: parts.join("\n") }] };
   }
 
-  if (q.hasNotebook && q.questionPath) {
-    const nb = parseNotebook(q.questionPath);
-    if (nb) {
-      return notebookHint(q.title, nb, level, q.questionPath);
-    }
-  }
-
+  const level = Math.min(requested, 3);
+  const nb = parseNotebook(q.questionPath);
+  if (nb) return notebookHint(q.title, nb, level, q.questionPath);
   return descriptionHint(q.title, q.description, level);
 }
 
@@ -56,7 +53,7 @@ function notebookHint(
   level: number,
   questionPath: string,
 ) {
-  const parts: string[] = [`## Hint for: ${title} (Level ${level}/3)\n`];
+  const parts: string[] = [`## Hint for: ${title} (Level ${level}/3, derived from the notebook)\n`];
 
   if (level >= 1) {
     const statement = nb.problemStatement;

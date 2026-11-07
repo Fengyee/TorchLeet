@@ -52,7 +52,7 @@ export function getExplainMessages(params: { topic: string }) {
 ## Tools
 - Use get_question to find the relevant TorchLeet problem for the topic
 - Use get_prerequisites to build a learning sequence
-- Use get_hint (level 1) to see the problem statement without spoilers
+- Use get_question for the problem statement (it gives no solution away); get_hint only if they want a nudge
 
 ## Style
 - Be thorough but not dry — inject genuine enthusiasm for elegant solutions

@@ -1,19 +1,26 @@
 id = "cuda-amp"
 legacy_ids = ["v1-14"]
-title = "Mixed Precision Training with torch.cuda.amp"
-description = "Use automatic mixed precision to train models faster with float16, managing loss scaling and gradient overflow."
+title = "Mixed Precision Training with torch.amp"
+description = "Use automatic mixed precision (torch.autocast + torch.amp.GradScaler) to train in float16/bfloat16, with loss scaling against float16 gradient underflow and skipped steps on overflow."
 difficulty = "easy"
 frequency = "emerging"   # very-likely | common | emerging (derived from company reports)
 number = 14
 set = "v1"
 tracks = ["basics"]
 
+# GENERATED from the grader spec — edit python/torchleet/problems/*.py, then run: generate.py hints
+hints = [
+  "float16 has a narrow exponent range: small gradients underflow to zero, so it needs loss scaling (an enabled GradScaler). bfloat16 has float32's range and needs none — return a GradScaler built with enabled=False so train_step can call it the same way on both paths.",
+  "Only the forward pass and the loss go inside torch.autocast(device_type=inputs.device.type, dtype=amp_dtype); backward runs outside it. Zero the gradients every step, and never cast the model itself to half precision.",
+  "Order matters: backward through the scaled loss, unscale the optimizer's gradients, clip them to max_norm=1.0, step through the scaler, then update the scale. Clipping before unscaling clips the scaled gradients (S times too big), and stepping the optimizer directly applies inf/NaN updates after an overflow that the scaler would have skipped.",
+]
+
 [notebooks]
 question = "cuda-amp.ipynb"
 solution = "cuda-amp_SOLN.ipynb"
 
 [grading]
-tier = "C"        # A=auto-graded B=partial C=not auto-graded (SEEDED, confirm)
-entries = []
+tier = "A"        # A = auto-graded by check(), C = not graded
+entries = ["amp_config", "train_step"]
 extras = []
 device = "cpu"

@@ -1,13 +1,131 @@
 {
- "count": 68,
+ "count": 108,
  "problems": [
+  {
+   "id": "buffered-loading",
+   "legacy_ids": [],
+   "title": "Implement a Shuffle Buffer for Streaming Data",
+   "description": "Build a shuffle buffer that wraps an IterableDataset, providing approximate shuffling with O(buffer_size) memory.",
+   "difficulty": "medium",
+   "category": "data-loading",
+   "tracks": [
+    "basics"
+   ],
+   "companies": [],
+   "question": "v3/data-loading/buffered-loading/buffered-loading.ipynb",
+   "solution": "v3/data-loading/buffered-loading/buffered-loading_SOLN.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v3/data-loading/buffered-loading/buffered-loading.ipynb",
+   "frequency": "emerging",
+   "company_confidence": {},
+   "llm_path_order": null,
+   "graded": true,
+   "entries": [
+    "ShuffleBufferDataset"
+   ],
+   "hints": [
+    "Pull buffer_size items from iter(base_dataset) into a list first; when the stream runs dry before that, you simply start with a smaller buffer.",
+    "Then, for every further item from the stream: pick a uniformly random slot, yield what is in it, and put the new item in that slot.",
+    "When the stream is exhausted, the buffer still holds up to buffer_size items: random.shuffle it and yield them all \u2014 otherwise they are lost."
+   ]
+  },
+  {
+   "id": "data-parallel-loading",
+   "legacy_ids": [],
+   "title": "Simulate DistributedSampler for Data Parallel Training",
+   "description": "Implement a distributed sampler from scratch that shards a dataset across ranks with deterministic shuffling and padding.",
+   "difficulty": "medium",
+   "category": "data-loading",
+   "tracks": [
+    "basics"
+   ],
+   "companies": [
+    "Meta",
+    "Google",
+    "NVIDIA",
+    "Anthropic"
+   ],
+   "question": "v3/data-loading/data-parallel-loading/data-parallel-loading.ipynb",
+   "solution": "v3/data-loading/data-parallel-loading/data-parallel-loading_SOLN.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v3/data-loading/data-parallel-loading/data-parallel-loading.ipynb",
+   "frequency": "common",
+   "company_confidence": {
+    "Meta": "inferred",
+    "Google": "inferred",
+    "NVIDIA": "inferred",
+    "Anthropic": "inferred"
+   },
+   "llm_path_order": null,
+   "graded": true,
+   "entries": [
+    "SimpleDistributedSampler"
+   ],
+   "hints": [
+    "Every rank gets num_samples = ceil(len(dataset) / num_replicas) indices, so the padded index list has total_size = num_samples * num_replicas entries.",
+    "In __iter__, build one index list that is identical on every rank: torch.randperm(n, generator=g) with g.manual_seed(seed + epoch) when shuffling, else range(n) \u2014 never seed with the rank.",
+    "Pad by appending indices from the start (repeat the list if padding > n), then take indices[rank::num_replicas] as this rank's shard."
+   ]
+  },
+  {
+   "id": "preloaded-dataset",
+   "legacy_ids": [],
+   "title": "Implement a Preloaded Map-Style Dataset",
+   "description": "Build a map-style Dataset that loads all data into memory and integrates with DataLoader for batching and shuffling.",
+   "difficulty": "easy",
+   "category": "data-loading",
+   "tracks": [
+    "basics"
+   ],
+   "companies": [],
+   "question": "v3/data-loading/preloaded-dataset/preloaded-dataset.ipynb",
+   "solution": "v3/data-loading/preloaded-dataset/preloaded-dataset_SOLN.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v3/data-loading/preloaded-dataset/preloaded-dataset.ipynb",
+   "frequency": "common",
+   "company_confidence": {},
+   "llm_path_order": null,
+   "graded": true,
+   "entries": [
+    "PreloadedDataset"
+   ],
+   "hints": [
+    "A map-style dataset needs exactly two methods besides __init__: __len__ (how many samples) and __getitem__(idx) (one sample). DataLoader does the batching and shuffling by calling them.",
+    "Convert once, in __init__: torch.as_tensor accepts tensors, numpy arrays and lists. Check that X and y have the same number of samples there, and raise if they do not.",
+    "__len__ is the number of rows of X (its first dimension, not the feature count); __getitem__ returns the tuple (self.X[idx], self.y[idx]) \u2014 no dict, no batching inside the dataset."
+   ]
+  },
+  {
+   "id": "streaming-dataset",
+   "legacy_ids": [],
+   "title": "Implement a Streaming IterableDataset with Yield",
+   "description": "Build an IterableDataset that streams data line by line from a file using a generator, with multi-worker sharding support.",
+   "difficulty": "medium",
+   "category": "data-loading",
+   "tracks": [
+    "basics"
+   ],
+   "companies": [],
+   "question": "v3/data-loading/streaming-dataset/streaming-dataset.ipynb",
+   "solution": "v3/data-loading/streaming-dataset/streaming-dataset_SOLN.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v3/data-loading/streaming-dataset/streaming-dataset.ipynb",
+   "frequency": "common",
+   "company_confidence": {},
+   "llm_path_order": null,
+   "graded": true,
+   "entries": [
+    "StreamingDataset"
+   ],
+   "hints": [
+    "Open the file inside __iter__ and loop over it \u2014 a Python file object is a lazy line iterator. Parse each line into x (all but the last value) and a scalar y (the last one) and yield them.",
+    "Every DataLoader worker runs its own copy of __iter__. torch.utils.data.get_worker_info() is None in the main process; inside a worker it has .id and .num_workers.",
+    "Shard by line number: enumerate the lines and keep only those with line_idx % num_workers == worker_id, treating the main process as worker 0 of 1."
+   ]
+  },
   {
    "id": "lin-regression",
    "legacy_ids": [
     "v1-1"
    ],
    "title": "Implement Linear Regression",
-   "description": "Build a linear regression model from scratch using PyTorch tensors and autograd, fitting a line to synthetic data with gradient descent.",
+   "description": "Build a linear regression model as an nn.Module, fit it to synthetic data with MSE loss and gradient descent, and check it against the closed-form least-squares solution.",
    "difficulty": "basic",
    "category": "",
    "tracks": [
@@ -16,7 +134,7 @@
    "companies": [],
    "question": "torch/basic/lin-regression/lin-regression.ipynb",
    "solution": "torch/basic/lin-regression/lin-regression_SOLN.ipynb",
-   "colab": "https://colab.research.google.com/github/Exorust/TorchLeet/blob/main/torch/basic/lin-regression/lin-regression.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/torch/basic/lin-regression/lin-regression.ipynb",
    "frequency": "emerging",
    "company_confidence": {},
    "llm_path_order": null,
@@ -45,7 +163,7 @@
    "companies": [],
    "question": "torch/basic/custom-dataset/custom-dataset.ipynb",
    "solution": "torch/basic/custom-dataset/custom-dataset_SOLN.ipynb",
-   "colab": "https://colab.research.google.com/github/Exorust/TorchLeet/blob/main/torch/basic/custom-dataset/custom-dataset.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/torch/basic/custom-dataset/custom-dataset.ipynb",
    "frequency": "emerging",
    "company_confidence": {},
    "llm_path_order": null,
@@ -74,7 +192,7 @@
    "companies": [],
    "question": "torch/basic/custom-activation/custom-activation.ipynb",
    "solution": "torch/basic/custom-activation/custom-activation_SOLN.ipynb",
-   "colab": "https://colab.research.google.com/github/Exorust/TorchLeet/blob/main/torch/basic/custom-activation/custom-activation.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/torch/basic/custom-activation/custom-activation.ipynb",
    "frequency": "emerging",
    "company_confidence": {},
    "llm_path_order": null,
@@ -83,9 +201,9 @@
     "CustomActivationModel"
    ],
    "hints": [
-    "An activation is just a function of the tensor; you can write it inline or as an nn.Module.",
-    "Make sure it is differentiable \u2014 use torch ops, not Python branching on tensor values.",
-    "Apply it between the linear layers in forward()."
+    "An activation is just a function of the tensor; write it with torch ops (as a method or a small nn.Module) so autograd can differentiate it.",
+    "This one has no learnable parameters: it is torch.tanh(x) + x, applied elementwise.",
+    "forward(x) is custom_activation(self.linear(x)) \u2014 the activation goes on the output of the single linear layer."
    ]
   },
   {
@@ -103,7 +221,7 @@
    "companies": [],
    "question": "torch/basic/custom-loss/custom-loss.ipynb",
    "solution": "torch/basic/custom-loss/custom-loss_SOLN.ipynb",
-   "colab": "https://colab.research.google.com/github/Exorust/TorchLeet/blob/main/torch/basic/custom-loss/custom-loss.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/torch/basic/custom-loss/custom-loss.ipynb",
    "frequency": "emerging",
    "company_confidence": {},
    "llm_path_order": null,
@@ -123,16 +241,16 @@
     "v1-5"
    ],
    "title": "Implement a Deep Neural Network",
-   "description": "Construct a multi-layer feedforward neural network with nonlinear activations, training it on a classification task.",
+   "description": "Construct a feedforward neural network (Linear -> ReLU -> Linear) and train it on a nonlinear regression task, comparing it against a purely linear model.",
    "difficulty": "basic",
    "category": "",
    "tracks": [
     "basics"
    ],
    "companies": [],
-   "question": "torch/basic/custom-DNN/custon-DNN.ipynb",
-   "solution": "torch/basic/custom-DNN/custon-DNN_SOLN.ipynb",
-   "colab": "https://colab.research.google.com/github/Exorust/TorchLeet/blob/main/torch/basic/custom-DNN/custon-DNN.ipynb",
+   "question": "torch/basic/custom-DNN/custom-DNN.ipynb",
+   "solution": "torch/basic/custom-DNN/custom-DNN_SOLN.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/torch/basic/custom-DNN/custom-DNN.ipynb",
    "frequency": "emerging",
    "company_confidence": {},
    "llm_path_order": null,
@@ -152,7 +270,7 @@
     "v1-6"
    ],
    "title": "Visualize Training with TensorBoard",
-   "description": "Log training metrics, model graphs, and embeddings to TensorBoard for interactive visualization.",
+   "description": "Log the per-epoch training loss to TensorBoard with SummaryWriter and inspect the loss curve.",
    "difficulty": "basic",
    "category": "",
    "tracks": [
@@ -161,19 +279,13 @@
    "companies": [],
    "question": "torch/basic/tensorboard/tensorboard.ipynb",
    "solution": "torch/basic/tensorboard/tensorboard_SOLN.ipynb",
-   "colab": "https://colab.research.google.com/github/Exorust/TorchLeet/blob/main/torch/basic/tensorboard/tensorboard.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/torch/basic/tensorboard/tensorboard.ipynb",
    "frequency": "emerging",
    "company_confidence": {},
    "llm_path_order": null,
-   "graded": true,
-   "entries": [
-    "LinearRegressionModel"
-   ],
-   "hints": [
-    "The model itself is a plain nn.Linear(1, 1).",
-    "Log with writer.add_scalar('Loss/train', loss.item(), step).",
-    "Run `tensorboard --logdir=runs` to view it."
-   ]
+   "graded": false,
+   "entries": [],
+   "hints": null
   },
   {
    "id": "save-model",
@@ -181,7 +293,7 @@
     "v1-7"
    ],
    "title": "Save and Load PyTorch Model",
-   "description": "Serialize model weights with state_dict and reload them, handling device mapping and architecture changes.",
+   "description": "Save a model's state_dict and reload it for inference (map_location, weights_only, eval mode), then save and restore a full training checkpoint with optimizer state.",
    "difficulty": "basic",
    "category": "",
    "tracks": [
@@ -190,13 +302,22 @@
    "companies": [],
    "question": "torch/basic/save-model/save_model.ipynb",
    "solution": "torch/basic/save-model/save_model_SOLN.ipynb",
-   "colab": "https://colab.research.google.com/github/Exorust/TorchLeet/blob/main/torch/basic/save-model/save_model.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/torch/basic/save-model/save_model.ipynb",
    "frequency": "emerging",
    "company_confidence": {},
    "llm_path_order": null,
-   "graded": false,
-   "entries": [],
-   "hints": null
+   "graded": true,
+   "entries": [
+    "save_weights",
+    "load_for_inference",
+    "save_checkpoint",
+    "load_checkpoint"
+   ],
+   "hints": [
+    "Everything here is torch.save / torch.load plus the state_dict methods. A state dict maps names to tensors \u2014 parameters and buffers such as BatchNorm's running statistics \u2014 so it loads without your class's code being pickled.",
+    "load_for_inference builds a fresh model with model_class(), loads the file with torch.load(path, map_location='cpu', weights_only=True), calls load_state_dict and then eval() \u2014 Dropout and BatchNorm behave differently in training mode.",
+    "A checkpoint is one dict with the keys 'epoch', 'model_state_dict' and 'optimizer_state_dict'. load_checkpoint calls load_state_dict on the model and on the optimizer it was given (not a new one) and returns checkpoint['epoch'] \u2014 without the optimizer state, momentum and Adam's moments restart from zero."
+   ]
   },
   {
    "id": "cnn",
@@ -213,7 +334,7 @@
    "companies": [],
    "question": "torch/easy/cnn/CNN.ipynb",
    "solution": "torch/easy/cnn/CNN_SOLN.ipynb",
-   "colab": "https://colab.research.google.com/github/Exorust/TorchLeet/blob/main/torch/easy/cnn/CNN.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/torch/easy/cnn/CNN.ipynb",
    "frequency": "emerging",
    "company_confidence": {},
    "llm_path_order": null,
@@ -242,7 +363,7 @@
    "companies": [],
    "question": "torch/easy/rnn/RNN.ipynb",
    "solution": "torch/easy/rnn/RNN_SOLN.ipynb",
-   "colab": "https://colab.research.google.com/github/Exorust/TorchLeet/blob/main/torch/easy/rnn/RNN.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/torch/easy/rnn/RNN.ipynb",
    "frequency": "emerging",
    "company_confidence": {},
    "llm_path_order": null,
@@ -251,9 +372,9 @@
     "RNNModel"
    ],
    "hints": [
-    "The input is (batch, seq_len, input_size) \u2014 nn.RNN needs batch_first=True to read it that way.",
-    "Feed only the final hidden state into the fully connected layer; that is the summary of the whole sequence.",
-    "The output should be (batch, 1): one predicted next value per sequence, not one per timestep."
+    "Keep a hidden state h of shape (batch, hidden_dim), start it at zeros on every forward call, and update it once per timestep in a Python loop over seq_len.",
+    "The update is h = tanh(x_t W_ih + h W_hh + b) with the same W_ih, W_hh and b at every step (store them as nn.Parameter); x_t is x[:, t] because the input is (batch, seq_len, input_dim).",
+    "After the loop, the final h summarises the whole sequence: map it with nn.Linear(hidden_dim, 1) to get one prediction per sequence, shape (batch, 1)."
    ]
   },
   {
@@ -262,7 +383,7 @@
     "v1-10"
    ],
    "title": "Data Augmentation with torchvision.transforms",
-   "description": "Apply random flips, crops, color jitter, and other augmentations to training images using torchvision's transform pipeline.",
+   "description": "Build CIFAR-10 train and test pipelines with torchvision.transforms: random flips, padded random crops and per-channel normalization for training, and a deterministic pipeline for evaluation.",
    "difficulty": "easy",
    "category": "",
    "tracks": [
@@ -271,13 +392,20 @@
    "companies": [],
    "question": "torch/easy/augmentation/augmentation.ipynb",
    "solution": "torch/easy/augmentation/augmentation_SOLN.ipynb",
-   "colab": "https://colab.research.google.com/github/Exorust/TorchLeet/blob/main/torch/easy/augmentation/augmentation.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/torch/easy/augmentation/augmentation.ipynb",
    "frequency": "emerging",
    "company_confidence": {},
    "llm_path_order": null,
-   "graded": false,
-   "entries": [],
-   "hints": null
+   "graded": true,
+   "entries": [
+    "train_transform",
+    "test_transform"
+   ],
+   "hints": [
+    "Both pipelines are a transforms.Compose list. The test pipeline only converts and normalises; the training pipeline adds the random augmentations in front.",
+    "PIL-space operations (RandomHorizontalFlip, RandomCrop) go before ToTensor, and Normalize goes last because it needs a tensor. The pad value of the crop is then a black pixel, as in the original images' borders.",
+    "Training: RandomHorizontalFlip(p=0.5), RandomCrop(32, padding=4), ToTensor(), Normalize(CIFAR10_MEAN, CIFAR10_STD). Test: ToTensor() and the same Normalize only \u2014 no random transform, so evaluation is deterministic."
+   ]
   },
   {
    "id": "benchmark",
@@ -285,7 +413,7 @@
     "v1-11"
    ],
    "title": "Add Benchmarking to PyTorch Code",
-   "description": "Profile PyTorch operations using torch.utils.benchmark, measuring GPU/CPU time and comparing implementations.",
+   "description": "Time a training loop correctly (perf_counter, CUDA synchronization, warm-up) and micro-benchmark a forward pass with torch.utils.benchmark, comparing autograd against inference_mode.",
    "difficulty": "easy",
    "category": "",
    "tracks": [
@@ -294,7 +422,7 @@
    "companies": [],
    "question": "torch/easy/benchmark/bench.ipynb",
    "solution": "torch/easy/benchmark/bench_SOLN.ipynb",
-   "colab": "https://colab.research.google.com/github/Exorust/TorchLeet/blob/main/torch/easy/benchmark/bench.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/torch/easy/benchmark/bench.ipynb",
    "frequency": "emerging",
    "company_confidence": {},
    "llm_path_order": null,
@@ -303,9 +431,9 @@
     "SimpleNN"
    ],
    "hints": [
-    "Flatten the 28x28 image before the first Linear layer.",
-    "Use time.perf_counter() around the epoch, not time.time().",
-    "On CUDA you must torch.cuda.synchronize() before stopping the clock."
+    "Flatten the 28x28 image (x.flatten(1)) and stack at least two hidden nn.Linear layers with a ReLU after each, ending in a Linear to 10 logits.",
+    "Time with time.perf_counter(), not time.time(), and expect the first epoch to be slower: it pays one-off warm-up costs.",
+    "CUDA kernels launch asynchronously: call torch.cuda.synchronize() before starting and before stopping the clock. torch.utils.benchmark.Timer does the warm-up, synchronization and repetition for you (but defaults to num_threads=1)."
    ]
   },
   {
@@ -323,18 +451,19 @@
    "companies": [],
    "question": "torch/easy/autoencoder/autoencoder.ipynb",
    "solution": "torch/easy/autoencoder/autoencoder_SOLN.ipynb",
-   "colab": "https://colab.research.google.com/github/Exorust/TorchLeet/blob/main/torch/easy/autoencoder/autoencoder.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/torch/easy/autoencoder/autoencoder.ipynb",
    "frequency": "emerging",
    "company_confidence": {},
    "llm_path_order": null,
    "graded": true,
    "entries": [
-    "Autoencoder"
+    "Autoencoder",
+    "anomaly_scores"
    ],
    "hints": [
-    "The decoder must undo the encoder's downsampling, so the output matches the input shape.",
-    "ConvTranspose2d with stride=2 doubles the spatial size; output_padding fixes off-by-ones.",
-    "Train it to reconstruct its own input with MSELoss."
+    "Without a bottleneck an autoencoder can learn the identity and reconstruct anomalies as well as normal digits \u2014 compress each 784-pixel image to a code much smaller than that (e.g. conv/pool down to 7x7, then a Linear to 32 numbers).",
+    "Mirror the encoder: Linear back to the 7x7 feature map, then ConvTranspose2d(kernel_size=3, stride=2, padding=1, output_padding=1) twice (7 -> 14 -> 28) and a Sigmoid, because the pixels are in [0, 1].",
+    "Score every image separately \u2014 average the squared error over C, H and W but not over the batch, so 64 images give 64 scores. Set the threshold to a high percentile (e.g. the 95th) of the scores on held-out normal images, never on test labels."
    ]
   },
   {
@@ -352,7 +481,7 @@
    "companies": [],
    "question": "torch/easy/quantize-lm/quantize-language-model.ipynb",
    "solution": "torch/easy/quantize-lm/quantize-language-model_SOLN.ipynb",
-   "colab": "https://colab.research.google.com/github/Exorust/TorchLeet/blob/main/torch/easy/quantize-lm/quantize-language-model.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/torch/easy/quantize-lm/quantize-language-model.ipynb",
    "frequency": "emerging",
    "company_confidence": {},
    "llm_path_order": null,
@@ -371,8 +500,8 @@
    "legacy_ids": [
     "v1-14"
    ],
-   "title": "Mixed Precision Training with torch.cuda.amp",
-   "description": "Use automatic mixed precision to train models faster with float16, managing loss scaling and gradient overflow.",
+   "title": "Mixed Precision Training with torch.amp",
+   "description": "Use automatic mixed precision (torch.autocast + torch.amp.GradScaler) to train in float16/bfloat16, with loss scaling against float16 gradient underflow and skipped steps on overflow.",
    "difficulty": "easy",
    "category": "",
    "tracks": [
@@ -381,13 +510,20 @@
    "companies": [],
    "question": "torch/easy/cuda-amp/cuda-amp.ipynb",
    "solution": "torch/easy/cuda-amp/cuda-amp_SOLN.ipynb",
-   "colab": "https://colab.research.google.com/github/Exorust/TorchLeet/blob/main/torch/easy/cuda-amp/cuda-amp.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/torch/easy/cuda-amp/cuda-amp.ipynb",
    "frequency": "emerging",
    "company_confidence": {},
    "llm_path_order": null,
-   "graded": false,
-   "entries": [],
-   "hints": null
+   "graded": true,
+   "entries": [
+    "amp_config",
+    "train_step"
+   ],
+   "hints": [
+    "float16 has a narrow exponent range: small gradients underflow to zero, so it needs loss scaling (an enabled GradScaler). bfloat16 has float32's range and needs none \u2014 return a GradScaler built with enabled=False so train_step can call it the same way on both paths.",
+    "Only the forward pass and the loss go inside torch.autocast(device_type=inputs.device.type, dtype=amp_dtype); backward runs outside it. Zero the gradients every step, and never cast the model itself to half precision.",
+    "Order matters: backward through the scaled loss, unscale the optimizer's gradients, clip them to max_norm=1.0, step through the scaler, then update the scale. Clipping before unscaling clips the scaled gradients (S times too big), and stepping the optimizer directly applies inf/NaN updates after an overflow that the scaler would have skipped."
+   ]
   },
   {
    "id": "cnn-param-init",
@@ -404,7 +540,7 @@
    "companies": [],
    "question": "torch/medium/cnn-param-init/CNN_ParamInit.ipynb",
    "solution": "torch/medium/cnn-param-init/CNN_ParamInit_SOLN.ipynb",
-   "colab": "https://colab.research.google.com/github/Exorust/TorchLeet/blob/main/torch/medium/cnn-param-init/CNN_ParamInit.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/torch/medium/cnn-param-init/CNN_ParamInit.ipynb",
    "frequency": "emerging",
    "company_confidence": {},
    "llm_path_order": null,
@@ -415,7 +551,7 @@
    "hints": [
     "config_init returns the initializer *function*, it does not run it \u2014 you use it as `model.apply(config_init('xavier'))`.",
     "Each initializer takes one module and should only touch it when it is an nn.Conv2d or nn.Linear; apply() walks containers and activations too.",
-    "torch.nn.init has all four: zeros_, normal_, xavier_normal_ (variance 1/n) and kaiming_normal_ (variance 2/n). Do not forget the bias."
+    "torch.nn.init has all four: zeros_, normal_, xavier_normal_ (variance 2/(fan_in + fan_out)) and kaiming_normal_ with nonlinearity='relu' (variance 2/fan_in). Do not forget the bias."
    ]
   },
   {
@@ -433,7 +569,7 @@
    "companies": [],
    "question": "torch/medium/cnn-scratch/CNN_scratch.ipynb",
    "solution": "torch/medium/cnn-scratch/CNN_scratch_SOLN.ipynb",
-   "colab": "https://colab.research.google.com/github/Exorust/TorchLeet/blob/main/torch/medium/cnn-scratch/CNN_scratch.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/torch/medium/cnn-scratch/CNN_scratch.ipynb",
    "frequency": "emerging",
    "company_confidence": {},
    "llm_path_order": null,
@@ -463,7 +599,7 @@
    "companies": [],
    "question": "torch/medium/lstm/LSTM.ipynb",
    "solution": "torch/medium/lstm/LSTM_SOLN.ipynb",
-   "colab": "https://colab.research.google.com/github/Exorust/TorchLeet/blob/main/torch/medium/lstm/LSTM.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/torch/medium/lstm/LSTM.ipynb",
    "frequency": "emerging",
    "company_confidence": {},
    "llm_path_order": null,
@@ -493,7 +629,7 @@
    "companies": [],
    "question": "torch/medium/alexnet/alexnet.ipynb",
    "solution": "torch/medium/alexnet/alexnet_SOLN.ipynb",
-   "colab": "https://colab.research.google.com/github/Exorust/TorchLeet/blob/main/torch/medium/alexnet/alexnet.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/torch/medium/alexnet/alexnet.ipynb",
    "frequency": "emerging",
    "company_confidence": {},
    "llm_path_order": null,
@@ -504,7 +640,7 @@
    "hints": [
     "AlexNet expects 3x224x224 input and ends in a classifier over num_classes.",
     "Five conv layers with max-pooling, then three fully connected layers.",
-    "Track the spatial size through each stride and pool to size the first Linear."
+    "Track the spatial size through each stride and pool to size the first Linear: with an 11x11 / stride-4 / padding-2 first conv and three 3x3 / stride-2 max-pools, 224 -> 55 -> 27 -> 13 -> 6, so the first Linear takes 256*6*6."
    ]
   },
   {
@@ -522,7 +658,7 @@
    "companies": [],
    "question": "torch/medium/3dcnn/3DCNN.ipynb",
    "solution": "torch/medium/3dcnn/3DCNN_SOLN.ipynb",
-   "colab": "https://colab.research.google.com/github/Exorust/TorchLeet/blob/main/torch/medium/3dcnn/3DCNN.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/torch/medium/3dcnn/3DCNN.ipynb",
    "frequency": "emerging",
    "company_confidence": {},
    "llm_path_order": null,
@@ -532,7 +668,7 @@
     "compute_dice_loss"
    ],
    "hints": [
-    "The input is [B, D, C, W, H]. Fold depth into the batch (view(B*D, C, W, H)) for the 2D backbone, then unfold and permute to [B, C, D, W, H] for Conv3d.",
+    "The input is [B, D, C, W, H]. Fold depth into the batch (view(B*D, C, W, H)) for the 2D backbone, then unfold and permute to [B, C, D, W, H] for Conv3d \u2014 and permute back to [B, D, 1, W, H] at the end so pred lines up with the masks.",
     "ResNet-18 with its last two children stripped divides W and H by 32, so the ConvTranspose3d stack has to multiply them back by 32 \u2014 use kernel/stride (1, k, k) so the depth axis is left alone.",
     "Dice over binary masks is 2*|pred \u2229 label| / (|pred| + |label|); finish the network with sigmoid so pred is a probability the overlap can be computed on."
    ]
@@ -552,7 +688,7 @@
    "companies": [],
    "question": "torch/hard/custom-autograd/custom-autgrad-function.ipynb",
    "solution": "torch/hard/custom-autograd/custom-autgrad-function_SOLN.ipynb",
-   "colab": "https://colab.research.google.com/github/Exorust/TorchLeet/blob/main/torch/hard/custom-autograd/custom-autgrad-function.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/torch/hard/custom-autograd/custom-autgrad-function.ipynb",
    "frequency": "emerging",
    "company_confidence": {},
    "llm_path_order": null,
@@ -562,9 +698,9 @@
     "LinearRegressionModel"
    ],
    "hints": [
-    "forward(ctx, x, slope) returns slope * x * sigmoid(x); ctx.save_for_backward whatever the backward pass needs.",
+    "forward(ctx, x, slope) returns slope * x * sigmoid(x); stash what backward needs with ctx.save_for_backward(x, slope), not as attributes on ctx.",
     "d/dx [x*sigmoid(x)] = sigmoid(x) + x*sigmoid(x)*(1 - sigmoid(x)); multiply by slope and by grad_output.",
-    "backward must return one gradient per forward input: d/dslope is grad_output * x * sigmoid(x). Keep the slope an nn.Parameter in the model so the optimizer updates it."
+    "backward must return one gradient per forward input: d/dslope is grad_output * x * sigmoid(x), summed back down to slope's shape (slope was broadcast over x). Keep the slope an nn.Parameter in the model so the optimizer updates it."
    ]
   },
   {
@@ -573,7 +709,7 @@
     "v1-26"
    ],
    "title": "Write a Transformer from Scratch",
-   "description": "Build the full transformer architecture \u2014 multi-head attention, positional encoding, encoder-decoder stacks \u2014 from raw tensors.",
+   "description": "Build a Transformer encoder classifier from scratch \u2014 sinusoidal positional encoding, multi-head self-attention with a padding mask, position-wise feed-forward and pre-LN residual blocks, read out from a CLS token.",
    "difficulty": "hard",
    "category": "",
    "tracks": [
@@ -582,7 +718,7 @@
    "companies": [],
    "question": "torch/hard/transformer/transformer.ipynb",
    "solution": "torch/hard/transformer/transformer_SOLN.ipynb",
-   "colab": "https://colab.research.google.com/github/Exorust/TorchLeet/blob/main/torch/hard/transformer/transformer.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/torch/hard/transformer/transformer.ipynb",
    "frequency": "emerging",
    "company_confidence": {},
    "llm_path_order": null,
@@ -597,7 +733,8 @@
    "hints": [
     "Shapes: everything below the model works on (batch, seq_len, embed_dim) and returns the same shape.",
     "In attention, split the last dim into (num_heads, head_dim) and move heads next to the batch: (B, H, T, head_dim). Scale the scores by 1/sqrt(head_dim) before the softmax over the *last* axis.",
-    "PositionalEncoding builds a (max_len, d_model) table once with sin(pos/10000^(2i/d)) and cos(...), registers it as a buffer, and forward just adds the first seq_len rows to x."
+    "PositionalEncoding builds a (max_len, d_model) table once with sin(pos/10000^(2i/d)) and cos(...), registers it as a buffer, and forward just adds the first seq_len rows to x.",
+    "Padding: key_padding_mask is (B, T) bool with True at pad positions. Fill those *key* columns of the (B, H, T, T) scores with -inf before the softmax (mask[:, None, None, :]). In the model, prepend one False column for the CLS token before passing the mask to every layer."
    ]
   },
   {
@@ -606,8 +743,8 @@
     "v1-27"
    ],
    "title": "Write a GAN",
-   "description": "Implement a generative adversarial network with competing generator and discriminator networks trained via minimax loss.",
-   "difficulty": "hard",
+   "description": "Implement a generative adversarial network: competing generator and discriminator networks trained adversarially with binary cross-entropy and the non-saturating generator loss.",
+   "difficulty": "medium",
    "category": "",
    "tracks": [
     "advanced"
@@ -615,7 +752,7 @@
    "companies": [],
    "question": "torch/hard/GAN/GAN.ipynb",
    "solution": "torch/hard/GAN/GAN_SOLN.ipynb",
-   "colab": "https://colab.research.google.com/github/Exorust/TorchLeet/blob/main/torch/hard/GAN/GAN.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/torch/hard/GAN/GAN.ipynb",
    "frequency": "emerging",
    "company_confidence": {},
    "llm_path_order": null,
@@ -627,7 +764,8 @@
    "hints": [
     "Generator(input_dim, output_dim) maps a latent vector to one fake sample; Discriminator(input_dim) maps a sample to a single number.",
     "End the generator with Tanh so samples live in [-1, 1], and the discriminator with Sigmoid so its output is a probability BCELoss can take.",
-    "When you train the generator do NOT detach the fake batch \u2014 the gradient has to flow back through the discriminator into the generator."
+    "When you train the generator do NOT detach the fake batch \u2014 the gradient has to flow back through the discriminator into the generator.",
+    "Training loop: D step = BCE(D(real), 1) + BCE(D(G(z).detach()), 0); G step = BCE(D(G(z)), 1) on a fake batch that is NOT detached (fresh noise, or the same G(z) the D step detached) \u2014 the non-saturating -log D(G(z)), not log(1 - D(G(z))). zero_grad the optimizer you are about to step before its backward()."
    ]
   },
   {
@@ -645,18 +783,21 @@
    "companies": [],
    "question": "torch/hard/seq-seq/seq-to-seq-with-Attention.ipynb",
    "solution": "torch/hard/seq-seq/seq-to-seq-with-Attention_SOLN.ipynb",
-   "colab": "https://colab.research.google.com/github/Exorust/TorchLeet/blob/main/torch/hard/seq-seq/seq-to-seq-with-Attention.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/torch/hard/seq-seq/seq-to-seq-with-Attention.ipynb",
    "frequency": "emerging",
    "company_confidence": {},
    "llm_path_order": null,
    "graded": true,
    "entries": [
-    "Encoder"
+    "Encoder",
+    "Decoder"
    ],
    "hints": [
     "Encoder(input_dim, embed_dim, hidden_dim, num_layers): nn.Embedding over the source vocabulary, then nn.LSTM(embed_dim, hidden_dim, num_layers, batch_first=True).",
     "forward returns (outputs, (hidden, cell)) \u2014 the attention needs every timestep, the decoder needs the final states to start from.",
-    "With batch_first=True outputs is (batch, src_len, hidden_dim) while hidden and cell stay (num_layers, batch, hidden_dim)."
+    "With batch_first=True outputs is (batch, src_len, hidden_dim) while hidden and cell stay (num_layers, batch, hidden_dim).",
+    "Decoder attention (Bahdanau): score every encoder output h_i against the decoder's top-layer state s = hidden[-1] with e_i = v^T tanh(W_s s + W_h h_i), giving (batch, src_len) scores; softmax over the source axis. Nothing in the decoder may assume a fixed source length.",
+    "context = torch.bmm(weights.unsqueeze(1), encoder_outputs) is (batch, 1, hidden_dim). Concatenate it with the embedded token, project back to embed_dim with tanh, run ONE LSTM step from (hidden, cell), and map the LSTM output to vocabulary logits."
    ]
   },
   {
@@ -664,9 +805,9 @@
    "legacy_ids": [
     "v1-31"
    ],
-   "title": "Explainable AI (GradCAM/SHAP)",
-   "description": "Visualize which image regions drive CNN predictions using Grad-CAM heatmaps and SHAP feature attributions.",
-   "difficulty": "hard",
+   "title": "Explainable AI with Grad-CAM",
+   "description": "Visualize which image regions drive a CNN's prediction with Grad-CAM: hooks capture a late layer's activations and gradients, and gradient-weighted feature maps give the heatmap.",
+   "difficulty": "medium",
    "category": "",
    "tracks": [
     "advanced"
@@ -674,13 +815,20 @@
    "companies": [],
    "question": "torch/hard/xai/xai.ipynb",
    "solution": "torch/hard/xai/xai_SOLN.ipynb",
-   "colab": "https://colab.research.google.com/github/Exorust/TorchLeet/blob/main/torch/hard/xai/xai.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/torch/hard/xai/xai.ipynb",
    "frequency": "emerging",
    "company_confidence": {},
    "llm_path_order": null,
-   "graded": false,
-   "entries": [],
-   "hints": null
+   "graded": true,
+   "entries": [
+    "grad_cam",
+    "upsample_cam"
+   ],
+   "hints": [
+    "You need two tensors from the target layer: its output A (forward) and the gradient of the class score with respect to A (backward). A forward hook on target_layer can keep A; from there A.register_hook or torch.autograd.grad gives dy^c/dA. Keep the handle that register_forward_hook returns so you can remove the hook again.",
+    "Score each sample by the logit of its own class (gather along dim 1, never the softmax) and sum those scores, so one backward pass gives every sample its own gradient. alpha is that gradient averaged over the spatial dims (2, 3) only \u2014 not over the batch \u2014 and the map is ReLU of the alpha-weighted sum of A over the channel dim: shape (N, h, w), not normalised.",
+    "For a frozen model inside torch.no_grad(): run the forward under torch.enable_grad() on a detached copy of x that requires grad, so a graph exists without touching the parameters. Remove the hook in a finally block. upsample_cam: F.interpolate on cam.unsqueeze(1) with mode='bilinear', align_corners=False, then divide each map by its own amax over (H, W) plus a small eps such as 1e-8."
+   ]
   },
   {
    "id": "adam",
@@ -700,7 +848,7 @@
    ],
    "question": "torch/hard/optimizers/adam/adam.ipynb",
    "solution": "torch/hard/optimizers/adam/adam_SOLN.ipynb",
-   "colab": "https://colab.research.google.com/github/Exorust/TorchLeet/blob/main/torch/hard/optimizers/adam/adam.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/torch/hard/optimizers/adam/adam.ipynb",
    "frequency": "common",
    "company_confidence": {
     "Meta": "inferred",
@@ -734,7 +882,7 @@
    ],
    "question": "torch/hard/optimizers/adamw/adamw.ipynb",
    "solution": "torch/hard/optimizers/adamw/adamw_SOLN.ipynb",
-   "colab": "https://colab.research.google.com/github/Exorust/TorchLeet/blob/main/torch/hard/optimizers/adamw/adamw.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/torch/hard/optimizers/adamw/adamw.ipynb",
    "frequency": "common",
    "company_confidence": {
     "Meta": "inferred",
@@ -768,7 +916,7 @@
    ],
    "question": "torch/hard/optimizers/muon/muon.ipynb",
    "solution": "torch/hard/optimizers/muon/muon_SOLN.ipynb",
-   "colab": "https://colab.research.google.com/github/Exorust/TorchLeet/blob/main/torch/hard/optimizers/muon/muon.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/torch/hard/optimizers/muon/muon.ipynb",
    "frequency": "common",
    "company_confidence": {
     "Meta": "inferred",
@@ -782,40 +930,48 @@
    ],
    "hints": [
     "Subclass torch.optim.Optimizer and keep per-parameter state in self.state[p] \u2014 it starts as an empty dict, so initialize it on the first step. Do the whole update under @torch.no_grad() with in-place ops (mul_, add_, addcmul_, addcdiv_).",
-    "Muon: buf = momentum*buf + grad (Nesterov uses grad + momentum*buf as the update), orthogonalize with your newton_schulz, scale by sqrt(max(m,n)/min(m,n)), and only for ndim >= 2 \u2014 1D params get the AdamW fallback. newton_schulz: divide X by its Frobenius norm, then iterate X = a*X + b*(X@X.T)@X + c*(X@X.T)^2@X with a=15/8, b=-5/4, c=3/8."
+    "newton_schulz: transpose a tall X so X @ X.T is the small Gram matrix, divide by the Frobenius norm (+ eps) so every singular value is <= 1, then repeat A = X @ X.T; X = a*X + (b*A + c*A@A) @ X with Muon's (a, b, c) = (3.4445, -4.7750, 2.0315). The singular values end up in about [0.7, 1.2] \u2014 that is expected, not a bug.",
+    "Muon on a matrix: buf = momentum*buf + grad, update = grad + momentum*buf (Nesterov) or buf; flatten it to (len(p), -1), orthogonalize with newton_schulz, scale by sqrt(max(1, rows/cols)), decay p by (1 - lr*weight_decay), then p -= lr * scale * update reshaped to p.shape. Only ndim >= 2 \u2014 1D params get the AdamW fallback."
    ]
   },
   {
    "id": "create-embeddings-out-of-an-llm",
    "legacy_ids": [],
-   "title": "Create Embeddings Out Of An Llm",
-   "description": "",
+   "title": "Create Embeddings out of an LLM",
+   "description": "Turn a causal LM's (SmolLM2-135M) final hidden states into sentence embeddings with masked mean pooling or last-token pooling, and rank reviews by cosine similarity to a keyword.",
    "difficulty": "medium",
    "category": "",
    "tracks": [],
    "companies": [],
    "question": "llm/Create-Embeddings-out-of-an-LLM/embeddings-q2.ipynb",
-   "solution": null,
-   "colab": "https://colab.research.google.com/github/Exorust/TorchLeet/blob/main/llm/Create-Embeddings-out-of-an-LLM/embeddings-q2.ipynb",
+   "solution": "llm/Create-Embeddings-out-of-an-LLM/embeddings-q2_SOLN.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/llm/Create-Embeddings-out-of-an-LLM/embeddings-q2.ipynb",
    "frequency": "emerging",
    "company_confidence": {},
    "llm_path_order": null,
-   "graded": false,
-   "entries": [],
-   "hints": null
+   "graded": true,
+   "entries": [
+    "mean_pool",
+    "last_token_pool"
+   ],
+   "hints": [
+    "Both poolings must ignore padding, and attention_mask (1 = real token, 0 = padding) says where it is. Turn it into a float of shape (batch, seq_len, 1) so it broadcasts against the (batch, seq_len, hidden) states.",
+    "Mean pooling: zero the padded states, sum over the sequence dim, and divide by each row's number of real tokens (the mask summed over seq_len, clamped to at least 1) \u2014 not by seq_len. Last-token pooling: find one position per row, then index hidden_states[arange(batch), positions].",
+    "The last real token sits at the last index where the mask is 1. With right padding that is (number of real tokens - 1); with left padding it is always seq_len - 1. seq_len - 1 minus the position of the first 1 in the mask flipped along seq_len covers both (argmax returns the first maximum)."
+   ]
   },
   {
    "id": "flash-attention",
    "legacy_ids": [],
    "title": "Flash Attention",
-   "description": "",
-   "difficulty": "medium",
+   "description": "Implement the FlashAttention forward pass \u2014 tiled attention with an online softmax (running max, running denominator, rescaled accumulator) and the logsumexp output \u2014 in PyTorch, then as a Triton kernel.",
+   "difficulty": "hard",
    "category": "",
    "tracks": [],
    "companies": [],
    "question": "llm/Flash-Attention/flash-attention.ipynb",
-   "solution": null,
-   "colab": "https://colab.research.google.com/github/Exorust/TorchLeet/blob/main/llm/Flash-Attention/flash-attention.ipynb",
+   "solution": "llm/Flash-Attention/flash-attention_SOLN.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/llm/Flash-Attention/flash-attention.ipynb",
    "frequency": "emerging",
    "company_confidence": {},
    "llm_path_order": null,
@@ -824,9 +980,9 @@
     "flash_attention_pytorch"
    ],
    "hints": [
-    "Keep a running max, a running denominator l, and a running output accumulator; on each K/V tile rescale all three by alpha = exp(prev_max - new_max).",
-    "Divide the accumulator by l only once, after the loop \u2014 not inside it.",
-    "L is the logsumexp of the scaled scores: running_max + log(l) at the end."
+    "Walk K/V in tiles and never build the full score matrix. Per query row keep a running max m, a running softmax denominator l and an unnormalized output accumulator, starting from -inf, 0 and 0.",
+    "When a tile raises the max to m_new, rescale l and the accumulator by alpha = exp(m - m_new) before adding the tile: l = alpha*l + p.sum(-1), acc = alpha*acc + p @ V_tile, with p = exp(s - m_new).",
+    "Divide the accumulator by l only once, after the last tile. L is the logsumexp of the scaled scores: m + log(l) at the end."
    ]
   },
   {
@@ -844,14 +1000,20 @@
    ],
    "companies": [],
    "question": "llm/RMS-Norm/rms-norm.ipynb",
-   "solution": null,
-   "colab": "https://colab.research.google.com/github/Exorust/TorchLeet/blob/main/llm/RMS-Norm/rms-norm.ipynb",
+   "solution": "llm/RMS-Norm/rms-norm_SOLN.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/llm/RMS-Norm/rms-norm.ipynb",
    "frequency": "emerging",
    "company_confidence": {},
    "llm_path_order": null,
-   "graded": false,
-   "entries": [],
-   "hints": null
+   "graded": true,
+   "entries": [
+    "RMSNorm"
+   ],
+   "hints": [
+    "Square the input, take the mean along the last dimension, add epsilon, then take the square root.",
+    "Use keepdim=True in the mean so broadcasting works when you divide.",
+    "The scale parameter gamma should have shape (dim,) and be created with nn.Parameter(torch.ones(dim))."
+   ]
   },
   {
    "id": "byte-pair-encoder",
@@ -869,7 +1031,7 @@
    "companies": [],
    "question": "llm/Byte-Pair-Encoder/BPE-q3.ipynb",
    "solution": "llm/Byte-Pair-Encoder/BPE-q3-SOLN.ipynb",
-   "colab": "https://colab.research.google.com/github/Exorust/TorchLeet/blob/main/llm/Byte-Pair-Encoder/BPE-q3.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/llm/Byte-Pair-Encoder/BPE-q3.ipynb",
    "frequency": "emerging",
    "company_confidence": {},
    "llm_path_order": 1,
@@ -902,7 +1064,7 @@
    "companies": [],
    "question": "llm/Implement-Attention-from-Scratch/attention-q4-Question.ipynb",
    "solution": "llm/Implement-Attention-from-Scratch/attention-q4.ipynb",
-   "colab": "https://colab.research.google.com/github/Exorust/TorchLeet/blob/main/llm/Implement-Attention-from-Scratch/attention-q4-Question.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/llm/Implement-Attention-from-Scratch/attention-q4-Question.ipynb",
    "frequency": "emerging",
    "company_confidence": {},
    "llm_path_order": 5,
@@ -932,7 +1094,7 @@
    "companies": [],
    "question": "llm/Multi-Head-Attention/multi-head-attention-q5-Question.ipynb",
    "solution": "llm/Multi-Head-Attention/multi-head-attention-q5.ipynb",
-   "colab": "https://colab.research.google.com/github/Exorust/TorchLeet/blob/main/llm/Multi-Head-Attention/multi-head-attention-q5-Question.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/llm/Multi-Head-Attention/multi-head-attention-q5-Question.ipynb",
    "frequency": "emerging",
    "company_confidence": {},
    "llm_path_order": 6,
@@ -941,9 +1103,9 @@
     "multi_head_attention"
    ],
    "hints": [
-    "Project Q/K/V, split d_model into num_heads chunks of d_head, attend, then concatenate.",
-    "Reshape to (batch, heads, seq, d_head) with view + transpose(1, 2).",
-    "After attention, transpose back and merge the heads before the output projection."
+    "Project q, k and v with their weights (x @ W.T), split d_model into num_heads chunks of d_head = d_model // num_heads, attend within each head, then merge the heads and apply W_o.",
+    "Reshape (batch, seq, d_model) to (batch, num_heads, seq, d_head) with view + transpose(1, 2), and scale the scores by 1/sqrt(d_head), not 1/sqrt(d_model).",
+    "After softmax(scores) @ V, undo the split with transpose(1, 2) and .contiguous().view(batch, seq_q, d_model) before W_o. Positions where the mask is False get -inf before the softmax."
    ]
   },
   {
@@ -962,7 +1124,7 @@
    "companies": [],
    "question": "llm/Grouped-Query-Attention/grouped-query-attention-Question.ipynb",
    "solution": "llm/Grouped-Query-Attention/grouped-query-attention.ipynb",
-   "colab": "https://colab.research.google.com/github/Exorust/TorchLeet/blob/main/llm/Grouped-Query-Attention/grouped-query-attention-Question.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/llm/Grouped-Query-Attention/grouped-query-attention-Question.ipynb",
    "frequency": "emerging",
    "company_confidence": {},
    "llm_path_order": 7,
@@ -971,9 +1133,9 @@
     "grouped_query_attention"
    ],
    "hints": [
-    "Queries keep all their heads; keys and values only have num_query_groups heads.",
-    "Project K/V to num_query_groups * d_head, not to d_model \u2014 that is where the saving comes from.",
-    "repeat_interleave each K/V head across the query heads that share it, then attend as usual."
+    "Queries keep all num_query_heads heads; keys and values only have num_query_groups heads, each shared by a group of g = num_query_heads // num_query_groups query heads.",
+    "W_k and W_v project to num_query_groups * d_head features, not d_model \u2014 that is where the KV-cache saving comes from. Split them into num_query_groups heads.",
+    "Expand K/V with repeat_interleave(g, dim=1) so query head h uses K/V head h // g (a plain repeat/tile would pair it with h % num_query_groups), then attend as in MHA."
    ]
   },
   {
@@ -983,7 +1145,7 @@
    ],
    "title": "Implement Sinusoidal Embeddings",
    "description": "Build the fixed sinusoidal positional encoding from 'Attention Is All You Need' using sin/cos at different frequencies.",
-   "difficulty": "medium",
+   "difficulty": "easy",
    "category": "modern-architectures",
    "tracks": [
     "advanced",
@@ -992,7 +1154,7 @@
    "companies": [],
    "question": "llm/Sinusoidal-Positional-Embedding/sinusoidal-q7-Question.ipynb",
    "solution": "llm/Sinusoidal-Positional-Embedding/sinusoidal-q7.ipynb",
-   "colab": "https://colab.research.google.com/github/Exorust/TorchLeet/blob/main/llm/Sinusoidal-Positional-Embedding/sinusoidal-q7-Question.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/llm/Sinusoidal-Positional-Embedding/sinusoidal-q7-Question.ipynb",
    "frequency": "emerging",
    "company_confidence": {},
    "llm_path_order": 2,
@@ -1011,7 +1173,7 @@
    "legacy_ids": [
     "v2-11"
    ],
-   "title": "Implement ROPE Embeddings",
+   "title": "Implement RoPE Embeddings",
    "description": "Build Rotary Position Embeddings that encode relative positions by rotating query and key vectors in complex space.",
    "difficulty": "medium",
    "category": "modern-architectures",
@@ -1022,7 +1184,7 @@
    "companies": [],
    "question": "llm/Rotary-Positional-Embedding/rope-q8-Question.ipynb",
    "solution": "llm/Rotary-Positional-Embedding/rope-q8.ipynb",
-   "colab": "https://colab.research.google.com/github/Exorust/TorchLeet/blob/main/llm/Rotary-Positional-Embedding/rope-q8-Question.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/llm/Rotary-Positional-Embedding/rope-q8-Question.ipynb",
    "frequency": "emerging",
    "company_confidence": {},
    "llm_path_order": 3,
@@ -1032,9 +1194,9 @@
     "apply_rotary_pos_emb"
    ],
    "hints": [
-    "rotate_half splits the last dim in two and returns (-x2, x1) concatenated.",
-    "Rotated q = q*cos + rotate_half(q)*sin \u2014 the 2D rotation written elementwise.",
-    "cos and sin must broadcast against (batch, heads, seq, dim)."
+    "RoPE turns each pair of features by an angle m * theta_i (position times a per-pair frequency). A rotation keeps norms, and q_m . k_n then depends only on m - n.",
+    "Write the 2D rotation elementwise: x*cos + rotate_half(x)*sin, where rotate_half maps each pair (a, b) to (-b, a). Rotate q and k the same way.",
+    "Half-split convention: rotate_half returns cat(-x2, x1) of the two halves, and cos/sin repeat the angles as cat(freqs, freqs); they broadcast against (batch, heads, seq, head_dim)."
    ]
   },
   {
@@ -1043,7 +1205,7 @@
     "v2-12"
    ],
    "title": "Implement SmolLM from Scratch",
-   "description": "Build a complete small language model end-to-end: tokenizer integration, transformer blocks, and autoregressive text generation.",
+   "description": "Build SmolLM-135M (Llama architecture: RoPE, grouped-query attention, SwiGLU, RMSNorm, tied embeddings) from scratch, load the pretrained weights and match the reference logits.",
    "difficulty": "hard",
    "category": "modern-architectures",
    "tracks": [
@@ -1053,7 +1215,7 @@
    "companies": [],
    "question": "llm/SmolLM/smollm-q12-Question.ipynb",
    "solution": "llm/SmolLM/smollm-q12.ipynb",
-   "colab": "https://colab.research.google.com/github/Exorust/TorchLeet/blob/main/llm/SmolLM/smollm-q12-Question.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/llm/SmolLM/smollm-q12-Question.ipynb",
    "frequency": "emerging",
    "company_confidence": {},
    "llm_path_order": 10,
@@ -1077,7 +1239,7 @@
     "v3-1"
    ],
    "title": "Implement Softmax from Scratch",
-   "description": "Build numerically stable softmax using the log-sum-exp trick, handling overflow and underflow in raw tensor math.",
+   "description": "Build numerically stable softmax from raw tensor ops by subtracting the max along dim (the same shift behind the log-sum-exp trick), so exp() never overflows.",
    "difficulty": "easy",
    "category": "classical-ml",
    "tracks": [
@@ -1091,7 +1253,7 @@
    ],
    "question": "v3/classical-ml/softmax/softmax.ipynb",
    "solution": "v3/classical-ml/softmax/softmax_SOLN.ipynb",
-   "colab": "https://colab.research.google.com/github/Exorust/TorchLeet/blob/main/v3/classical-ml/softmax/softmax.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v3/classical-ml/softmax/softmax.ipynb",
    "frequency": "very-likely",
    "company_confidence": {
     "Apple": "inferred",
@@ -1130,7 +1292,7 @@
    ],
    "question": "v3/classical-ml/kmeans/kmeans.ipynb",
    "solution": "v3/classical-ml/kmeans/kmeans_SOLN.ipynb",
-   "colab": "https://colab.research.google.com/github/Exorust/TorchLeet/blob/main/v3/classical-ml/kmeans/kmeans.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v3/classical-ml/kmeans/kmeans.ipynb",
    "frequency": "very-likely",
    "company_confidence": {
     "Uber": "inferred",
@@ -1168,7 +1330,7 @@
    ],
    "question": "v3/classical-ml/knn/knn.ipynb",
    "solution": "v3/classical-ml/knn/knn_SOLN.ipynb",
-   "colab": "https://colab.research.google.com/github/Exorust/TorchLeet/blob/main/v3/classical-ml/knn/knn.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v3/classical-ml/knn/knn.ipynb",
    "frequency": "common",
    "company_confidence": {
     "Uber": "inferred",
@@ -1205,7 +1367,7 @@
    ],
    "question": "v3/classical-ml/logistic-regression/logistic-regression.ipynb",
    "solution": "v3/classical-ml/logistic-regression/logistic-regression_SOLN.ipynb",
-   "colab": "https://colab.research.google.com/github/Exorust/TorchLeet/blob/main/v3/classical-ml/logistic-regression/logistic-regression.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v3/classical-ml/logistic-regression/logistic-regression.ipynb",
    "frequency": "common",
    "company_confidence": {
     "Google": "inferred",
@@ -1246,7 +1408,7 @@
    ],
    "question": "v3/modern-architectures/contrastive-loss-clip/contrastive-loss-clip.ipynb",
    "solution": "v3/modern-architectures/contrastive-loss-clip/contrastive-loss-clip_SOLN.ipynb",
-   "colab": "https://colab.research.google.com/github/Exorust/TorchLeet/blob/main/v3/modern-architectures/contrastive-loss-clip/contrastive-loss-clip.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v3/modern-architectures/contrastive-loss-clip/contrastive-loss-clip.ipynb",
    "frequency": "very-likely",
    "company_confidence": {
     "OpenAI": "inferred",
@@ -1264,7 +1426,7 @@
    "hints": [
     "L2-normalize both feature sets first (F.normalize(x, dim=-1)); the cosine similarity matrix is then just image_features @ text_features.T.",
     "The positives sit on the diagonal, so the cross-entropy targets are torch.arange(batch_size) \u2014 image i must match text i.",
-    "Symmetric means both directions: (cross_entropy(logits, labels) + cross_entropy(logits.T, labels)) / 2. Scale the logits by the temperature before the softmax, and keep temperature learnable as a log-temperature."
+    "Symmetric means both directions: (cross_entropy(logits, labels) + cross_entropy(logits.T, labels)) / 2, with logits = cosine similarity * exp(log_temperature). That multiplier is CLIP's logit scale 1/tau (initialized to 1/0.07, clamped at 100); keep it learnable in log space."
    ]
   },
   {
@@ -1287,7 +1449,7 @@
    ],
    "question": "v3/modern-architectures/2d-positional-embeddings/2d-positional-embeddings.ipynb",
    "solution": "v3/modern-architectures/2d-positional-embeddings/2d-positional-embeddings_SOLN.ipynb",
-   "colab": "https://colab.research.google.com/github/Exorust/TorchLeet/blob/main/v3/modern-architectures/2d-positional-embeddings/2d-positional-embeddings.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v3/modern-architectures/2d-positional-embeddings/2d-positional-embeddings.ipynb",
    "frequency": "very-likely",
    "company_confidence": {
     "Anthropic": "inferred",
@@ -1302,7 +1464,7 @@
    ],
    "hints": [
     "Encode the row and the column separately, then concatenate the two halves.",
-    "Each half is a standard 1D sinusoidal embedding of size d_model // 2.",
+    "Each half is a standard 1D sinusoidal embedding of size d_half = d_model // 2, with frequencies 1 / 10000^(2i / d_half) \u2014 so d_model must be divisible by 4.",
     "Flatten the grid in row-major order so index r*width + c is position (r, c)."
    ]
   },
@@ -1327,7 +1489,7 @@
    ],
    "question": "v3/llm-decoding/top-p-sampling/top-p-sampling.ipynb",
    "solution": "v3/llm-decoding/top-p-sampling/top-p-sampling_SOLN.ipynb",
-   "colab": "https://colab.research.google.com/github/Exorust/TorchLeet/blob/main/v3/llm-decoding/top-p-sampling/top-p-sampling.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v3/llm-decoding/top-p-sampling/top-p-sampling.ipynb",
    "frequency": "very-likely",
    "company_confidence": {
     "Anthropic": "inferred",
@@ -1342,9 +1504,9 @@
     "top_p_sample"
    ],
    "hints": [
-    "Sort probabilities descending, then take the smallest prefix whose cumulative mass >= p.",
-    "Always keep at least one token, or a peaked distribution can select nothing.",
-    "Renormalize the surviving probabilities before sampling from them."
+    "Sort probabilities descending, then take the smallest prefix whose cumulative mass >= p \u2014 the token that crosses p is IN the nucleus.",
+    "Always keep at least the top token, renormalize the survivors, and map the sampled position back through the sort indices.",
+    "Drop a token when the mass ranked ABOVE it already reaches p: mask (cumsum - prob) >= p, i.e. the cumsum shifted right by one."
    ]
   },
   {
@@ -1354,7 +1516,7 @@
    ],
    "title": "Implement Top-k Sampling",
    "description": "Select the k highest-probability tokens, zero out the rest, renormalize, and sample for controlled text generation.",
-   "difficulty": "medium",
+   "difficulty": "easy",
    "category": "llm-decoding",
    "tracks": [
     "llm-path"
@@ -1367,7 +1529,7 @@
    ],
    "question": "v3/llm-decoding/top-k-sampling/top-k-sampling.ipynb",
    "solution": "v3/llm-decoding/top-k-sampling/top-k-sampling_SOLN.ipynb",
-   "colab": "https://colab.research.google.com/github/Exorust/TorchLeet/blob/main/v3/llm-decoding/top-k-sampling/top-k-sampling.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v3/llm-decoding/top-k-sampling/top-k-sampling.ipynb",
    "frequency": "very-likely",
    "company_confidence": {
     "Anthropic": "inferred",
@@ -1383,7 +1545,7 @@
    "hints": [
     "Keep the k largest logits and make the rest impossible to select.",
     "Setting the discarded logits to -inf before the softmax does that cleanly.",
-    "torch.topk gives you both the values and their indices."
+    "torch.topk gives you both the values and their indices. Clamp k to the vocabulary size first \u2014 torch.topk raises if k > vocab_size."
    ]
   },
   {
@@ -1406,7 +1568,7 @@
    ],
    "question": "v3/llm-decoding/beam-search/beam-search.ipynb",
    "solution": "v3/llm-decoding/beam-search/beam-search_SOLN.ipynb",
-   "colab": "https://colab.research.google.com/github/Exorust/TorchLeet/blob/main/v3/llm-decoding/beam-search/beam-search.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v3/llm-decoding/beam-search/beam-search.ipynb",
    "frequency": "very-likely",
    "company_confidence": {
     "Google": "inferred",
@@ -1422,7 +1584,8 @@
    "hints": [
     "Keep each beam as (sequence, cumulative_log_prob) and start from ([start_token], 0.0) \u2014 the start token counts towards max_len.",
     "Score a candidate with the RUNNING total: score + log_softmax(logits)[token]. Comparing only the current step's log-prob turns beam search into greedy.",
-    "Pool the candidates from every beam into one list, sort by score, keep the top beam_width. At the end return the sequence of the highest-scoring beam."
+    "Pool the candidates from every beam into one ranking (or flatten a (beams, vocab) score matrix and topk it), keep the top beam_width. A candidate ending in eos_token is finished: set it aside, never extend it.",
+    "At the end rank finished hypotheses and the beams still alive at max_len by score / num_generated ** length_penalty and return the best sequence."
    ]
   },
   {
@@ -1445,7 +1608,7 @@
    ],
    "question": "v3/llm-decoding/temperature-sampling/temperature-sampling.ipynb",
    "solution": "v3/llm-decoding/temperature-sampling/temperature-sampling_SOLN.ipynb",
-   "colab": "https://colab.research.google.com/github/Exorust/TorchLeet/blob/main/v3/llm-decoding/temperature-sampling/temperature-sampling.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v3/llm-decoding/temperature-sampling/temperature-sampling.ipynb",
    "frequency": "very-likely",
    "company_confidence": {
     "OpenAI": "inferred",
@@ -1460,7 +1623,7 @@
    ],
    "hints": [
     "Divide the logits by the temperature before the softmax.",
-    "Low temperature sharpens the distribution toward the argmax; high flattens it.",
+    "Low temperature sharpens the distribution toward the argmax; high flattens it. temperature == 0 is the limit of that: return the argmax instead of dividing by zero.",
     "Sample with torch.multinomial on the resulting probabilities."
    ]
   },
@@ -1486,7 +1649,7 @@
    ],
    "question": "v3/alignment-training/lora/lora.ipynb",
    "solution": "v3/alignment-training/lora/lora_SOLN.ipynb",
-   "colab": "https://colab.research.google.com/github/Exorust/TorchLeet/blob/main/v3/alignment-training/lora/lora.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v3/alignment-training/lora/lora.ipynb",
    "frequency": "very-likely",
    "company_confidence": {
     "Meta": "inferred",
@@ -1503,9 +1666,9 @@
     "merge_lora"
    ],
    "hints": [
-    "LoRA adds a low-rank detour: output = W@x + (alpha/r) * (x@A)@B.",
-    "A is (d_in, rank) and B is (rank, d_out); the base layer's weights are frozen.",
-    "Merging means W_new = W_old + scaling * (A@B).T \u2014 same maths, one matrix."
+    "LoRA adds a low-rank detour next to the frozen layer: output = linear(x) + (alpha/r) * (x @ A) @ B.",
+    "A is (d_in, rank) and B is (rank, d_out). Start B at zero and A random (bound ~1/sqrt(d_in)): the adapter is a no-op at step 0 but still gets a gradient.",
+    "Merging means W_new = W_old + (alpha/r) * (A @ B).T \u2014 the transpose matches nn.Linear's (d_out, d_in) weight layout."
    ]
   },
   {
@@ -1530,7 +1693,7 @@
    ],
    "question": "v3/llm-inference/kv-cache/kv-cache.ipynb",
    "solution": "v3/llm-inference/kv-cache/kv-cache_SOLN.ipynb",
-   "colab": "https://colab.research.google.com/github/Exorust/TorchLeet/blob/main/v3/llm-inference/kv-cache/kv-cache.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v3/llm-inference/kv-cache/kv-cache.ipynb",
    "frequency": "very-likely",
    "company_confidence": {
     "Anthropic": "inferred",
@@ -1548,7 +1711,7 @@
    "hints": [
     "The cache holds (batch, heads, seq_len, d_head). What changes as you decode?",
     "update() appends the new K/V along the seq_len dimension (dim=2).",
-    "In cached mode you compute Q/K/V for the new token only, then attend over the full cached K/V. No causal mask is needed \u2014 the cache only holds the past."
+    "In cached mode you compute Q/K/V for the new token(s) only, then attend over the full cached K/V. A single decode token needs no causal mask (the cache only holds the past); a multi-token prefill chunk does, offset by the cached length."
    ]
   },
   {
@@ -1557,7 +1720,7 @@
     "v3-13"
    ],
    "title": "Implement Sliding Window Attention",
-   "description": "Restrict attention to a fixed local window around each token, reducing memory from O(n\u00b2) to O(n\u00b7w) for long sequences.",
+   "description": "Restrict attention to a local window around each token (bidirectional or Mistral-style causal), cutting attention cost from O(n\u00b2) to O(n\u00b7w) for long sequences.",
    "difficulty": "medium",
    "category": "modern-architectures",
    "tracks": [
@@ -1572,7 +1735,7 @@
    ],
    "question": "v3/modern-architectures/sliding-window-attention/sliding-window-attention.ipynb",
    "solution": "v3/modern-architectures/sliding-window-attention/sliding-window-attention_SOLN.ipynb",
-   "colab": "https://colab.research.google.com/github/Exorust/TorchLeet/blob/main/v3/modern-architectures/sliding-window-attention/sliding-window-attention.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v3/modern-architectures/sliding-window-attention/sliding-window-attention.ipynb",
    "frequency": "very-likely",
    "company_confidence": {
     "Mistral": "inferred",
@@ -1588,9 +1751,9 @@
     "sliding_window_attention"
    ],
    "hints": [
-    "Position i may attend to j when |i - j| <= window_size.",
-    "Build the mask from pairwise distances: (arange - arange.T).abs() <= window_size.",
-    "Masked positions get -inf BEFORE the softmax, not zero after it."
+    "Position i may attend to j when |i - j| <= window_size; with causal=True, only when also j <= i.",
+    "Build the mask from pairwise offsets: pos = torch.arange(seq_len), then (pos[:, None] - pos[None, :]).abs() <= window_size (rows are queries, columns keys). For causal=True, AND it with pos[:, None] >= pos[None, :].",
+    "Masked positions get -inf BEFORE the softmax, not zero after it, and the scores are scaled by 1/sqrt(d) as in ordinary attention."
    ]
   },
   {
@@ -1614,7 +1777,7 @@
    ],
    "question": "v3/alignment-training/dpo/dpo.ipynb",
    "solution": "v3/alignment-training/dpo/dpo_SOLN.ipynb",
-   "colab": "https://colab.research.google.com/github/Exorust/TorchLeet/blob/main/v3/alignment-training/dpo/dpo.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v3/alignment-training/dpo/dpo.ipynb",
    "frequency": "very-likely",
    "company_confidence": {
     "Anthropic": "inferred",
@@ -1629,9 +1792,9 @@
     "dpo_loss"
    ],
    "hints": [
-    "get_batch_logps sums the log-probability of each actual next token in the sequence.",
-    "Shift by one: logits at position t predict the token at position t+1.",
-    "DPO = -logsigmoid(beta * ((pi_chosen - ref_chosen) - (pi_rejected - ref_rejected)))."
+    "get_batch_logps sums the log-probability of each actual next token, counting only the positions where loss_mask is 1 (the response, not the prompt or padding).",
+    "Shift by one: logits at position t predict the token at position t+1, so pair logits[:, :-1] with input_ids[:, 1:] \u2014 and with loss_mask[:, 1:].",
+    "DPO = -logsigmoid(beta * ((pi_chosen - ref_chosen) - (pi_rejected - ref_rejected))), averaged over the batch."
    ]
   },
   {
@@ -1655,7 +1818,7 @@
    ],
    "question": "v3/alignment-training/ppo-rlhf/ppo-rlhf.ipynb",
    "solution": "v3/alignment-training/ppo-rlhf/ppo-rlhf_SOLN.ipynb",
-   "colab": "https://colab.research.google.com/github/Exorust/TorchLeet/blob/main/v3/alignment-training/ppo-rlhf/ppo-rlhf.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v3/alignment-training/ppo-rlhf/ppo-rlhf.ipynb",
    "frequency": "very-likely",
    "company_confidence": {
     "Anthropic": "inferred",
@@ -1673,7 +1836,8 @@
    "hints": [
     "generate_sequences starts from a BOS token (id = vocab_size), samples one token at a time from Categorical(logits=logits[:, -1, :]), and returns the running input ids so the value model can be scored on the same prefixes.",
     "GAE runs backwards: delta_t = r_t + gamma*V(s_{t+1}) - V(s_t) with V(s_T)=0, then A_t = delta_t + gamma*lam*A_{t+1}.",
-    "ppo_step recomputes log-probs for `actions` under the current policy, forms ratio = exp(new - old), and takes min(ratio*A, clamp(ratio, 1-eps, 1+eps)*A). total_loss = -policy_objective + 0.5*value_loss + kl_beta*kl_div."
+    "ppo_step recomputes log-probs for `actions` under the current policy, forms ratio = exp(new - old), and takes min(ratio*A, clamp(ratio, 1-eps, 1+eps)*A). total_loss = -policy_objective + 0.5*value_loss + kl_beta*kl_div.",
+    "For kl_div use the k3 estimator exp(ref - new) - (ref - new) - 1, averaged over tokens. mean(new - ref) has the right value but zero expected gradient, so as a loss term it never pulls the policy back toward the reference."
    ]
   },
   {
@@ -1696,7 +1860,7 @@
    ],
    "question": "v3/alignment-training/gradient-checkpointing/gradient-checkpointing.ipynb",
    "solution": "v3/alignment-training/gradient-checkpointing/gradient-checkpointing_SOLN.ipynb",
-   "colab": "https://colab.research.google.com/github/Exorust/TorchLeet/blob/main/v3/alignment-training/gradient-checkpointing/gradient-checkpointing.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v3/alignment-training/gradient-checkpointing/gradient-checkpointing.ipynb",
    "frequency": "very-likely",
    "company_confidence": {
     "Meta": "inferred",
@@ -1714,7 +1878,8 @@
     "In forward: stash fn on ctx, ctx.save_for_backward(*args), and run fn(*args) inside torch.no_grad() so no intermediate activation is kept.",
     "In backward: detach the saved inputs, requires_grad_ them, re-run fn inside torch.enable_grad(), then torch.autograd.backward(outputs, grad_outputs) \u2014 unlike autograd.grad on the inputs, that also reaches fn's own parameters.",
     "backward must return one gradient per forward argument \u2014 None for fn itself, then a gradient (or None) for each tensor input (read them off the detached copies).",
-    "Autograd only calls backward if some tensor argument requires grad. When none does (plain input data), have checkpoint() pass an extra dummy tensor with requires_grad=True, or the wrapped layer's weights never train."
+    "Autograd only calls backward if some tensor argument requires grad. When none does (plain input data), have checkpoint() pass an extra dummy tensor with requires_grad=True, or the wrapped layer's weights never train.",
+    "Dropout inside fn: save torch.get_rng_state() in forward, and in backward restore it inside torch.random.fork_rng() before recomputing, so the replay draws the same mask without disturbing the RNG stream of the rest of training."
    ]
   },
   {
@@ -1723,7 +1888,7 @@
     "v3-17"
    ],
    "title": "Implement Mixture of Experts Layer",
-   "description": "Build a gated MoE with top-k routing, load balancing loss, and expert capacity constraints for sparse computation.",
+   "description": "Build a sparse MoE layer with top-k routing, gate-weighted combination of expert outputs, and a Switch-style load-balancing loss.",
    "difficulty": "hard",
    "category": "modern-architectures",
    "tracks": [
@@ -1739,7 +1904,7 @@
    ],
    "question": "v3/modern-architectures/mixture-of-experts/mixture-of-experts.ipynb",
    "solution": "v3/modern-architectures/mixture-of-experts/mixture-of-experts_SOLN.ipynb",
-   "colab": "https://colab.research.google.com/github/Exorust/TorchLeet/blob/main/v3/modern-architectures/mixture-of-experts/mixture-of-experts.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v3/modern-architectures/mixture-of-experts/mixture-of-experts.ipynb",
    "frequency": "very-likely",
    "company_confidence": {
     "Google": "inferred",
@@ -1756,8 +1921,8 @@
    ],
    "hints": [
     "Route each token to its top-k experts and weight their outputs by the gate probabilities.",
-    "Renormalize the top-k gate values so each token's weights sum to 1.",
-    "The aux loss penalizes imbalance: experts should receive roughly equal token shares."
+    "Renormalize the top-k gate values so each token's weights sum to 1 (a softmax over just the k selected logits). Dispatch per expert: find the (token, slot) pairs that chose it, run only those tokens, and index_add the weighted outputs back.",
+    "Switch-Transformer aux loss: num_experts * sum_i f_i * P_i, where f_i is the fraction of routing assignments sent to expert i (a count, no gradient) and P_i is the mean softmax router probability of expert i (this carries the gradient). Uniform routing gives 1."
    ]
   },
   {
@@ -1781,7 +1946,7 @@
    ],
    "question": "v3/llm-inference/speculative-decoding/speculative-decoding.ipynb",
    "solution": "v3/llm-inference/speculative-decoding/speculative-decoding_SOLN.ipynb",
-   "colab": "https://colab.research.google.com/github/Exorust/TorchLeet/blob/main/v3/llm-inference/speculative-decoding/speculative-decoding.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v3/llm-inference/speculative-decoding/speculative-decoding.ipynb",
    "frequency": "very-likely",
    "company_confidence": {
     "Google": "inferred",
@@ -1824,7 +1989,7 @@
    ],
    "question": "v3/llm-inference/continuous-batching/continuous-batching.ipynb",
    "solution": "v3/llm-inference/continuous-batching/continuous-batching_SOLN.ipynb",
-   "colab": "https://colab.research.google.com/github/Exorust/TorchLeet/blob/main/v3/llm-inference/continuous-batching/continuous-batching.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v3/llm-inference/continuous-batching/continuous-batching.ipynb",
    "frequency": "very-likely",
    "company_confidence": {
     "Perplexity": "inferred",
@@ -1841,7 +2006,8 @@
    "hints": [
     "Keep two lists: waiting_queue and active_batch. Each step() fills free slots from the queue first, then runs the model, then evicts whatever finished.",
     "A request is done when it emits eos_token_id OR len(generated_ids) reaches max_gen_len \u2014 check both after appending the token.",
-    "step() should report whether work remains (active or waiting), so run() can simply loop `while self.step(model): pass`."
+    "step() should report whether work remains (active or waiting), so run() can simply loop `while self.step(model): pass`.",
+    "Batch the forward pass: right-pad every active sequence to the longest with eos_token_id, call the model ONCE on (num_active, max_len), and read row i's logits at its own last real position, length_i - 1. A causal model never looks at pads that come after a sequence."
    ]
   },
   {
@@ -1865,7 +2031,7 @@
    ],
    "question": "v3/modern-architectures/ddpm/ddpm.ipynb",
    "solution": "v3/modern-architectures/ddpm/ddpm_SOLN.ipynb",
-   "colab": "https://colab.research.google.com/github/Exorust/TorchLeet/blob/main/v3/modern-architectures/ddpm/ddpm.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v3/modern-architectures/ddpm/ddpm.ipynb",
    "frequency": "very-likely",
    "company_confidence": {
     "Midjourney": "inferred",
@@ -1909,7 +2075,7 @@
    ],
    "question": "v3/modern-architectures/ddim-cfg/ddim-cfg.ipynb",
    "solution": "v3/modern-architectures/ddim-cfg/ddim-cfg_SOLN.ipynb",
-   "colab": "https://colab.research.google.com/github/Exorust/TorchLeet/blob/main/v3/modern-architectures/ddim-cfg/ddim-cfg.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v3/modern-architectures/ddim-cfg/ddim-cfg.ipynb",
    "frequency": "very-likely",
    "company_confidence": {
     "Midjourney": "inferred",
@@ -1950,7 +2116,7 @@
    ],
    "question": "v3/modern-architectures/mamba/mamba.ipynb",
    "solution": "v3/modern-architectures/mamba/mamba_SOLN.ipynb",
-   "colab": "https://colab.research.google.com/github/Exorust/TorchLeet/blob/main/v3/modern-architectures/mamba/mamba.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v3/modern-architectures/mamba/mamba.ipynb",
    "frequency": "common",
    "company_confidence": {
     "DeepMind": "inferred",
@@ -1990,7 +2156,7 @@
    ],
    "question": "v3/modern-architectures/vit-mae/vit-mae.ipynb",
    "solution": "v3/modern-architectures/vit-mae/vit-mae_SOLN.ipynb",
-   "colab": "https://colab.research.google.com/github/Exorust/TorchLeet/blob/main/v3/modern-architectures/vit-mae/vit-mae.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v3/modern-architectures/vit-mae/vit-mae.ipynb",
    "frequency": "very-likely",
    "company_confidence": {
     "Meta": "inferred",
@@ -2033,7 +2199,7 @@
    ],
    "question": "v3/gpu-systems/triton-fused-softmax/triton-fused-softmax.ipynb",
    "solution": "v3/gpu-systems/triton-fused-softmax/triton-fused-softmax_SOLN.ipynb",
-   "colab": "https://colab.research.google.com/github/Exorust/TorchLeet/blob/main/v3/gpu-systems/triton-fused-softmax/triton-fused-softmax.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v3/gpu-systems/triton-fused-softmax/triton-fused-softmax.ipynb",
    "frequency": "very-likely",
    "company_confidence": {
     "NVIDIA": "inferred",
@@ -2073,7 +2239,7 @@
    ],
    "question": "v3/gpu-systems/flash-attention-triton/flash-attention-triton.ipynb",
    "solution": "v3/gpu-systems/flash-attention-triton/flash-attention-triton_SOLN.ipynb",
-   "colab": "https://colab.research.google.com/github/Exorust/TorchLeet/blob/main/v3/gpu-systems/flash-attention-triton/flash-attention-triton.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v3/gpu-systems/flash-attention-triton/flash-attention-triton.ipynb",
    "frequency": "very-likely",
    "company_confidence": {
     "NVIDIA": "inferred",
@@ -2089,7 +2255,8 @@
    "hints": [
     "Outer loop over Q blocks, inner loop over K,V blocks; the only matrix you ever materialize is the (block_q, block_kv) tile of scores.",
     "Carry running_max, running_sum and running_output per Q block. When a tile raises the max, rescale BOTH the running sum and the running output by exp(old_max - new_max) before adding the tile's contribution.",
-    "Normalize once, after the inner loop: output = running_output / running_sum. The last block may be short, so slice with min(start + block, N)."
+    "Normalize once, after the inner loop: output = running_output / running_sum. The last block may be short, so slice with min(start + block, N).",
+    "Causal: a K,V tile that starts after the Q tile's last row is pure future \u2014 skip it. Only tiles straddling the diagonal need a mask (-inf where key > query); the first tile always contains key 0, so no row is ever fully masked."
    ]
   },
   {
@@ -2113,7 +2280,7 @@
    ],
    "question": "v3/gpu-systems/fsdp/fsdp.ipynb",
    "solution": "v3/gpu-systems/fsdp/fsdp_SOLN.ipynb",
-   "colab": "https://colab.research.google.com/github/Exorust/TorchLeet/blob/main/v3/gpu-systems/fsdp/fsdp.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v3/gpu-systems/fsdp/fsdp.ipynb",
    "frequency": "very-likely",
    "company_confidence": {
     "Meta": "inferred",
@@ -2131,7 +2298,8 @@
    "hints": [
     "shard() is torch.chunk into world_size pieces (detached clones, since each rank owns its own memory); all_gather() is torch.cat of those pieces.",
     "reduce_scatter is reduce THEN scatter: sum the per-rank full gradients elementwise first, then chunk the sum so rank i keeps chunk i.",
-    "forward_on_rank should all-gather the weight and bias shards, run F.linear(x, full_weight, full_bias), and drop the gathered copy afterwards \u2014 that release is what makes the memory saving real."
+    "forward_on_rank should all-gather the weight and bias shards, run F.linear(x, full_weight, full_bias), and drop the gathered copy afterwards \u2014 that release is what makes the memory saving real.",
+    "compute_gradient_shards is data parallelism: split x and grad_output into one micro-batch per rank, let each rank compute grad_out_r.T @ x_r, then reduce_scatter. Gathering the shards must give exactly grad_output.T @ x."
    ]
   },
   {
@@ -2154,7 +2322,7 @@
    ],
    "question": "v3/alignment-training/grpo/grpo.ipynb",
    "solution": "v3/alignment-training/grpo/grpo_SOLN.ipynb",
-   "colab": "https://colab.research.google.com/github/Exorust/TorchLeet/blob/main/v3/alignment-training/grpo/grpo.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v3/alignment-training/grpo/grpo.ipynb",
    "frequency": "common",
    "company_confidence": {
     "DeepMind": "inferred",
@@ -2171,7 +2339,8 @@
    "hints": [
     "Generation: repeat_interleave each prompt group_size times so one prompt's completions sit in a contiguous block, then sample token by token.",
     "Advantages are normalised INSIDE each group: reshape rewards to (num_prompts, group_size), subtract the row mean, divide by the row std + eps. No value model, no global mean.",
-    "grpo_loss = -mean(min(ratio*A, clip(ratio, 1-eps, 1+eps)*A)) + beta*KL, with ratio = exp(policy_logps - old_logps) and A broadcast over the tokens of its sequence."
+    "grpo_loss = -mean(min(ratio*A, clip(ratio, 1-eps, 1+eps)*A)) + beta*KL, with ratio = exp(policy_logps - old_logps) and A broadcast over the tokens of its sequence.",
+    "The KL is the paper's per-token estimator: with d = ref_logps - policy_logps, KL = exp(d) - d - 1, averaged over tokens. mean(policy_logps - ref_logps) can go negative and has zero expected gradient as a loss."
    ]
   },
   {
@@ -2195,7 +2364,7 @@
    ],
    "question": "v3/llm-inference/inference-engine/inference-engine.ipynb",
    "solution": "v3/llm-inference/inference-engine/inference-engine_SOLN.ipynb",
-   "colab": "https://colab.research.google.com/github/Exorust/TorchLeet/blob/main/v3/llm-inference/inference-engine/inference-engine.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v3/llm-inference/inference-engine/inference-engine.ipynb",
    "frequency": "very-likely",
    "company_confidence": {
     "Perplexity": "inferred",
@@ -2218,7 +2387,8 @@
    "hints": [
     "The cache stores K and V as (B, heads, seq_len, d_head) and update() concatenates the new step along dim=2. In cached mode you only project the NEW token into q/k/v and attend over the whole cached K/V.",
     "MiniTransformer has to know where it is: when a cache is passed, the positional embedding index for the incoming token is the cache's current seq_len, not 0.",
-    "top_p keeps the smallest set of tokens whose cumulative probability reaches top_p: sort descending, cumsum, zero out the tail, RENORMALISE, sample, then map the sampled index back through sorted_indices."
+    "top_p keeps the smallest set of tokens whose cumulative probability reaches top_p: sort descending, cumsum, zero out the tail, RENORMALISE, sample, then map the sampled index back through sorted_indices.",
+    "Prompts of different lengths: LEFT-pad them so every row's last prompt token is in the last column, pass a (B, kv_len) padding mask so no query attends to a pad key (pads stay in the KV cache), and give each row its own position ids that count real tokens only."
    ]
   },
   {
@@ -2242,7 +2412,7 @@
    ],
    "question": "v3/modern-architectures/knowledge-distillation/knowledge-distillation.ipynb",
    "solution": "v3/modern-architectures/knowledge-distillation/knowledge-distillation_SOLN.ipynb",
-   "colab": "https://colab.research.google.com/github/Exorust/TorchLeet/blob/main/v3/modern-architectures/knowledge-distillation/knowledge-distillation.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v3/modern-architectures/knowledge-distillation/knowledge-distillation.ipynb",
    "frequency": "very-likely",
    "company_confidence": {
     "Google": "inferred",
@@ -2257,9 +2427,9 @@
     "distillation_loss"
    ],
    "hints": [
-    "Two terms: KL against the temperature-softened teacher, and cross-entropy against the hard labels.",
-    "alpha blends them: alpha * soft + (1 - alpha) * hard.",
-    "Scale the soft term by temperature**2 so its gradients stay comparable as T changes."
+    "Two terms: a KL divergence between the temperature-softened teacher and student distributions, and ordinary cross-entropy against the hard labels; alpha blends them as alpha * soft + (1 - alpha) * hard.",
+    "The soft term is KL(teacher_T || student_T): F.kl_div takes the student's log_softmax(s / T) as its input and the teacher's softmax(t / T) as its target, with reduction='batchmean' ('mean' would also divide by the number of classes).",
+    "Multiply the soft term by T**2: its gradients scale like 1/T^2, so without the factor the soft targets fade as T grows. The hard-label cross-entropy uses the raw student logits (T = 1)."
    ]
   },
   {
@@ -2282,7 +2452,7 @@
    ],
    "question": "v3/gpu-systems/ring-attention/ring-attention.ipynb",
    "solution": "v3/gpu-systems/ring-attention/ring-attention_SOLN.ipynb",
-   "colab": "https://colab.research.google.com/github/Exorust/TorchLeet/blob/main/v3/gpu-systems/ring-attention/ring-attention.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v3/gpu-systems/ring-attention/ring-attention.ipynb",
    "frequency": "very-likely",
    "company_confidence": {
     "Anthropic": "inferred",
@@ -2322,7 +2492,7 @@
    ],
    "question": "v3/modern-architectures/swin-transformer/swin-transformer.ipynb",
    "solution": "v3/modern-architectures/swin-transformer/swin-transformer_SOLN.ipynb",
-   "colab": "https://colab.research.google.com/github/Exorust/TorchLeet/blob/main/v3/modern-architectures/swin-transformer/swin-transformer.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v3/modern-architectures/swin-transformer/swin-transformer.ipynb",
    "frequency": "very-likely",
    "company_confidence": {
     "Microsoft": "inferred",
@@ -2345,6 +2515,1069 @@
     "window_partition: reshape (B, H, W, C) to (B, H/ws, ws, W/ws, ws, C), permute the two window axes next to each other, then flatten. window_reverse undoes exactly that permutation.",
     "The shifted mask compares region labels: label each pre-shift position by which of the (up-to) 4 wrapped regions it belongs to, roll the label map the same way you roll the features, partition it, and allow a pair only when the two labels match.",
     "The relative position bias is one learned scalar per relative offset: build a (w*w, w*w) index map from (row_i - row_j, col_i - col_j) shifted to be non-negative, gather the table with it, and ADD the result to the attention scores before the softmax."
+   ]
+  },
+  {
+   "id": "decision-tree",
+   "legacy_ids": [],
+   "title": "Decision Tree Classifier (CART)",
+   "description": "Build a CART classification tree from scratch with Gini splits found by a vectorized sort-and-cumsum search over every threshold.",
+   "difficulty": "medium",
+   "category": "ml-fundamentals",
+   "tracks": [
+    "basics"
+   ],
+   "companies": [],
+   "question": "v4/ml-fundamentals/decision-tree/decision-tree.ipynb",
+   "solution": "v4/ml-fundamentals/decision-tree/decision-tree_SOLN.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v4/ml-fundamentals/decision-tree/decision-tree.ipynb",
+   "frequency": "",
+   "company_confidence": {},
+   "llm_path_order": null,
+   "graded": true,
+   "entries": [
+    "DecisionTreeClassifier"
+   ],
+   "hints": [
+    "Grow the tree recursively: at each node try every feature and every candidate threshold, keep the split with the lowest weighted child Gini, and stop at max_depth, below min_samples_split, or when no split strictly lowers the impurity.",
+    "Sort one feature column once. A cut after sorted position i sends the first i+1 samples left, so the left class counts for every cut are a cumsum of the one-hot labels in sorted order, and the right counts are total minus left.",
+    "With counts c_L and c_R, n_L*Gini_L + n_R*Gini_R = n - (|c_L|^2/n_L + |c_R|^2/n_R). Mask cuts between equal values, take the argmax over (cut, feature), and use the midpoint of the two neighbouring sorted values as the threshold (x <= t goes left)."
+   ]
+  },
+  {
+   "id": "pca",
+   "legacy_ids": [],
+   "title": "Principal Component Analysis via SVD",
+   "description": "Implement PCA from the SVD of the centered data: orthonormal components, unbiased explained variances, projection and reconstruction.",
+   "difficulty": "easy",
+   "category": "ml-fundamentals",
+   "tracks": [
+    "basics"
+   ],
+   "companies": [],
+   "question": "v4/ml-fundamentals/pca/pca.ipynb",
+   "solution": "v4/ml-fundamentals/pca/pca_SOLN.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v4/ml-fundamentals/pca/pca.ipynb",
+   "frequency": "",
+   "company_confidence": {},
+   "llm_path_order": null,
+   "graded": true,
+   "entries": [
+    "pca_fit",
+    "pca_transform",
+    "pca_inverse_transform"
+   ],
+   "hints": [
+    "Center the data first: PCA finds directions of maximum variance around the mean, not around the origin.",
+    "Take the thin SVD of the centered data, Xc = U S V^T. The rows of V^T are the principal directions, already sorted by decreasing singular value.",
+    "The covariance is Xc^T Xc / (N - 1) = V diag(S^2 / (N - 1)) V^T, so the explained variances are S^2 / (N - 1). Project with (X - mean) @ components.T and reconstruct with Z @ components + mean."
+   ]
+  },
+  {
+   "id": "gmm-em",
+   "legacy_ids": [],
+   "title": "Gaussian Mixture Model with EM",
+   "description": "Fit a full-covariance Gaussian mixture with expectation-maximization, using a log-space E-step, closed-form M-step and a monotone likelihood history.",
+   "difficulty": "medium",
+   "category": "ml-fundamentals",
+   "tracks": [
+    "basics"
+   ],
+   "companies": [],
+   "question": "v4/ml-fundamentals/gmm-em/gmm-em.ipynb",
+   "solution": "v4/ml-fundamentals/gmm-em/gmm-em_SOLN.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v4/ml-fundamentals/gmm-em/gmm-em.ipynb",
+   "frequency": "",
+   "company_confidence": {},
+   "llm_path_order": null,
+   "graded": true,
+   "entries": [
+    "GaussianMixture"
+   ],
+   "hints": [
+    "Alternate two steps. E-step: responsibilities r[n, k] = p(component k | x_n). M-step: re-estimate weights, means and covariances as responsibility-weighted averages. Do the E-step in log space.",
+    "log r[n, k] = log pi_k + log N(x_n | mu_k, Sigma_k) - logsumexp over k of the same. For log N use a Cholesky factor: Sigma = L L^T, solve L z = x - mu, then log N = -0.5 * (D log 2pi + 2 sum log diag(L) + |z|^2).",
+    "With N_k = sum_n r[n, k]: pi_k = N_k / N, mu_k = sum_n r[n, k] x_n / N_k, Sigma_k = sum_n r[n, k] (x_n - mu_k)(x_n - mu_k)^T / N_k + reg_covar * I. Record the mean log-likelihood (the mean over n of the logsumexp) at init and after every M-step."
+   ]
+  },
+  {
+   "id": "gradient-boosting",
+   "legacy_ids": [],
+   "title": "Gradient Boosting Regressor",
+   "description": "Implement gradient-boosted regression trees for squared loss, including your own variance-reduction regression tree, shrinkage and staged predictions.",
+   "difficulty": "hard",
+   "category": "ml-fundamentals",
+   "tracks": [
+    "advanced"
+   ],
+   "companies": [],
+   "question": "v4/ml-fundamentals/gradient-boosting/gradient-boosting.ipynb",
+   "solution": "v4/ml-fundamentals/gradient-boosting/gradient-boosting_SOLN.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v4/ml-fundamentals/gradient-boosting/gradient-boosting.ipynb",
+   "frequency": "",
+   "company_confidence": {},
+   "llm_path_order": null,
+   "graded": true,
+   "entries": [
+    "GradientBoostingRegressor"
+   ],
+   "hints": [
+    "Start from the constant that minimizes squared error, F_0 = mean(y). For squared loss the negative gradient at each point is just the residual y - F(x), so every stage fits a small regression tree to the current residuals.",
+    "Write a regression tree whose splits minimize SSE_left + SSE_right and whose leaves predict the mean target. After sorting a feature, SSE_L + SSE_R = sum(r^2) - (S_L^2/n_L + S_R^2/n_R), where S_L is a prefix sum (cumsum) of the sorted targets.",
+    "Update F <- F + learning_rate * tree(X) after each stage and predict F_0 + learning_rate * sum of all tree outputs. staged_predict yields that running sum after each tree; return a new tensor each time rather than mutating one in place."
+   ]
+  },
+  {
+   "id": "iou-nms",
+   "legacy_ids": [],
+   "title": "Box IoU and Non-Maximum Suppression",
+   "description": "Implement vectorized pairwise box IoU, greedy non-maximum suppression, and class-aware batched NMS from scratch.",
+   "difficulty": "easy",
+   "category": "vision",
+   "tracks": [
+    "basics"
+   ],
+   "companies": [],
+   "question": "v4/vision/iou-nms/iou-nms.ipynb",
+   "solution": "v4/vision/iou-nms/iou-nms_SOLN.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v4/vision/iou-nms/iou-nms.ipynb",
+   "frequency": "",
+   "company_confidence": {},
+   "llm_path_order": null,
+   "graded": true,
+   "entries": [
+    "box_iou",
+    "nms",
+    "batched_nms"
+   ],
+   "hints": [
+    "box_iou: give boxes1 a new axis so it is (N, 1, 4) and boxes2 (1, M, 4); elementwise max/min of the corners then broadcast to (N, M) with no loop. NMS itself is inherently sequential: sort by score and walk the list once.",
+    "Intersection width = (min of the right edges - max of the left edges), clamped at 0; same for height. Union = area1 + area2 - intersection, and it can be 0 for two zero-area boxes. In NMS only a box you KEEP may suppress others, and it suppresses when IoU > threshold (strictly).",
+    "nms: compute the full IoU matrix once, visit boxes in descending-score order, skip any already suppressed, otherwise keep it and mark everything with IoU above the threshold as suppressed. batched_nms: either run nms per label, or shift every box by label * (max - min + 1) so boxes of different labels can never overlap and call nms once."
+   ]
+  },
+  {
+   "id": "detection-map",
+   "legacy_ids": [],
+   "title": "Object Detection mAP",
+   "description": "Compute all-point interpolated average precision and detection mAP@IoU with greedy score-ordered matching across images.",
+   "difficulty": "medium",
+   "category": "vision",
+   "tracks": [
+    "basics"
+   ],
+   "companies": [],
+   "question": "v4/vision/detection-map/detection-map.ipynb",
+   "solution": "v4/vision/detection-map/detection-map_SOLN.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v4/vision/detection-map/detection-map.ipynb",
+   "frequency": "",
+   "company_confidence": {},
+   "llm_path_order": null,
+   "graded": true,
+   "entries": [
+    "average_precision",
+    "mean_average_precision"
+   ],
+   "hints": [
+    "Split it in two: (1) turn a ranked list of TP/FP flags into precision and recall arrays, (2) turn those arrays into one number. AP is the area under the precision-recall curve after replacing each precision by the best precision achievable at that recall or higher.",
+    "For AP: prepend recall 0 and append recall 1 with precision 0, take a reverse running max of precision (flip, cummax, flip), and sum (recall step) x (interpolated precision). For mAP: per class, sort ALL its predictions across images by score, keep a 'used' flag per GT, and only compare a prediction with GTs of the same class in the same image.",
+    "A prediction is a TP if, among the unmatched same-class GTs in its image, the one with the highest IoU has IoU >= threshold (mark it used); otherwise FP. Cumulative sums of the TP and FP flags give precision = TP / (TP + FP) and recall = TP / num_gt_of_class. Average AP only over classes that have at least one GT."
+   ]
+  },
+  {
+   "id": "classification-metrics",
+   "legacy_ids": [],
+   "title": "Classification Metrics from Scratch",
+   "description": "Implement confusion matrix, macro/micro precision-recall-F1, tie-aware ROC-AUC, step-wise average precision and expected calibration error in vectorized PyTorch.",
+   "difficulty": "medium",
+   "category": "ml-fundamentals",
+   "tracks": [
+    "basics"
+   ],
+   "companies": [],
+   "question": "v4/ml-fundamentals/classification-metrics/classification-metrics.ipynb",
+   "solution": "v4/ml-fundamentals/classification-metrics/classification-metrics_SOLN.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v4/ml-fundamentals/classification-metrics/classification-metrics.ipynb",
+   "frequency": "",
+   "company_confidence": {},
+   "llm_path_order": null,
+   "graded": true,
+   "entries": [
+    "confusion_matrix",
+    "precision_recall_f1",
+    "roc_auc",
+    "average_precision",
+    "expected_calibration_error"
+   ],
+   "hints": [
+    "Everything except ECE falls out of counting: a confusion matrix gives per-class TP/FP/FN, and for ranking metrics one sort of the scores gives every threshold at once. Encode each (true, pred) pair as a single integer so one counting op builds the whole matrix.",
+    "TP is the diagonal, FP the column sums minus the diagonal, FN the row sums minus the diagonal. For AUC, rank all scores (tied scores share their average rank); the rank-sum of the positives gives the Mann-Whitney U. For AP, sort descending, cumsum the labels, and evaluate precision and recall only at the LAST position of each run of equal scores.",
+    "AUC = (sum of positive ranks - n_pos(n_pos+1)/2) / (n_pos * n_neg). AP = sum over distinct thresholds of (recall step) x precision. ECE: bin index from the max probability with torch.bucketize on the interior edges (right-closed bins), then per-bin sums of correct and confidence via bincount with weights; ECE = sum_b |sum(correct) - sum(conf)| / N."
+   ]
+  },
+  {
+   "id": "mlp-backprop",
+   "legacy_ids": [],
+   "title": "MLP Backprop by Hand (No Autograd)",
+   "description": "Implement Linear, ReLU and a numerically stable softmax-cross-entropy with hand-written backward passes, and train an MLP with SGD \u2014 no autograd.",
+   "difficulty": "medium",
+   "category": "dl-fundamentals",
+   "tracks": [
+    "basics"
+   ],
+   "companies": [],
+   "question": "v4/dl-fundamentals/mlp-backprop/mlp-backprop.ipynb",
+   "solution": "v4/dl-fundamentals/mlp-backprop/mlp-backprop_SOLN.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v4/dl-fundamentals/mlp-backprop/mlp-backprop.ipynb",
+   "frequency": "",
+   "company_confidence": {},
+   "llm_path_order": null,
+   "graded": true,
+   "entries": [
+    "Linear",
+    "ReLU",
+    "softmax_cross_entropy",
+    "MLP"
+   ],
+   "hints": [
+    "Write the chain rule for one element first: y[n, o] = sum_i x[n, i] * W[o, i] + b[o], so dL/dW[o, i] = sum over the batch of dL/dy[n, o] * x[n, i]. Every gradient has exactly the shape of the thing it is the gradient of \u2014 use that to pick the matmul.",
+    "Linear.forward must cache its input. backward: grad_W = grad_out.T @ x  (out, in), grad_b = grad_out summed over the batch, grad_x = grad_out @ W. ReLU lets the gradient through only where the forward input was strictly > 0.",
+    "Softmax-CE: subtract each row's max before exp (log-sum-exp), loss = mean(logsumexp(z) - z[target]); its gradient w.r.t. the logits is (softmax(z) - onehot(target)) / N. MLP.backward walks self.layers in reverse; step() does W -= lr * grad_W, b -= lr * grad_b."
+   ]
+  },
+  {
+   "id": "micrograd",
+   "legacy_ids": [],
+   "title": "Micrograd: A Scalar Autodiff Engine",
+   "description": "Build a scalar reverse-mode autodiff engine: operator overloading, accumulated gradients on shared nodes, and an iterative topological sort.",
+   "difficulty": "medium",
+   "category": "dl-fundamentals",
+   "tracks": [
+    "basics"
+   ],
+   "companies": [],
+   "question": "v4/dl-fundamentals/micrograd/micrograd.ipynb",
+   "solution": "v4/dl-fundamentals/micrograd/micrograd_SOLN.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v4/dl-fundamentals/micrograd/micrograd.ipynb",
+   "frequency": "",
+   "company_confidence": {},
+   "llm_path_order": null,
+   "graded": true,
+   "entries": [
+    "Value"
+   ],
+   "hints": [
+    "Every operation returns a new Value that remembers its inputs plus a tiny closure `_backward` which, given out.grad, adds (local derivative x out.grad) into each input's .grad. Ask yourself why it must ADD rather than assign.",
+    "backward(): build a topological order of the graph (each node after all of its inputs), set self.grad = 1.0, then call _backward on the nodes in reverse order. Use an explicit stack instead of recursion so a chain 5000 nodes deep still works.",
+    "Derive most ops from a few primitives: a - b = a + (-b), a / b = a * b**-1, -a = a * -1. The reflected ops wrap the Python number with the operands in the right order (1 - v is Value(1) - v, 1 / v is Value(1) / v). Local derivatives: tanh' = 1 - tanh^2, sigmoid' = s(1 - s), exp' = exp, log' = 1/x, (x^k)' = k x^(k-1)."
+   ]
+  },
+  {
+   "id": "normalization-layers",
+   "legacy_ids": [],
+   "title": "Normalization Layers & Dropout from Scratch",
+   "description": "Implement BatchNorm2d (with running statistics), LayerNorm, GroupNorm and inverted Dropout as nn.Modules that match PyTorch's outputs and gradients in train and eval mode.",
+   "difficulty": "medium",
+   "category": "dl-fundamentals",
+   "tracks": [
+    "basics"
+   ],
+   "companies": [],
+   "question": "v4/dl-fundamentals/normalization-layers/normalization-layers.ipynb",
+   "solution": "v4/dl-fundamentals/normalization-layers/normalization-layers_SOLN.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v4/dl-fundamentals/normalization-layers/normalization-layers.ipynb",
+   "frequency": "",
+   "company_confidence": {},
+   "llm_path_order": null,
+   "graded": true,
+   "entries": [
+    "BatchNorm2d",
+    "LayerNorm",
+    "GroupNorm",
+    "Dropout"
+   ],
+   "hints": [
+    "All three norms compute (x - mean) / sqrt(var + eps) followed by a learnable per-feature affine; they differ only in WHICH axes the statistics are taken over. For an (N, C, H, W) input: BatchNorm over (N, H, W) for each channel, LayerNorm over the trailing normalized_shape dims of each sample, GroupNorm over (C/G, H, W) for each sample and group.",
+    "Normalize with the biased variance (unbiased=False). BatchNorm in training also updates running = (1 - momentum) * running + momentum * batch_stat under torch.no_grad(), using the UNBIASED variance (x n/(n-1), n = N*H*W) for running_var; in eval it normalizes with the running stats. Store them with register_buffer, and branch on self.training.",
+    "GroupNorm: reshape to (N, G, -1) so each group holds C/G consecutive channels, normalize over the last dim, reshape back, then apply weight/bias of shape (C,) viewed as (1, C, 1, 1). Dropout: draw a keep-mask with P(keep) = 1 - p, return x * mask / (1 - p) in training, x itself in eval, and zeros when p == 1 (dividing by 1 - p = 0 would give NaN)."
+   ]
+  },
+  {
+   "id": "training-utilities",
+   "legacy_ids": [],
+   "title": "Training Utilities: SGD, Warmup + Cosine LR, Gradient Clipping, EMA",
+   "description": "Implement torch.optim.SGD (momentum, Nesterov, weight decay), a linear-warmup + cosine LR schedule, global-norm gradient clipping and a weight EMA that match PyTorch exactly.",
+   "difficulty": "medium",
+   "category": "dl-fundamentals",
+   "tracks": [
+    "basics"
+   ],
+   "companies": [],
+   "question": "v4/dl-fundamentals/training-utilities/training-utilities.ipynb",
+   "solution": "v4/dl-fundamentals/training-utilities/training-utilities_SOLN.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v4/dl-fundamentals/training-utilities/training-utilities.ipynb",
+   "frequency": "",
+   "company_confidence": {},
+   "llm_path_order": null,
+   "graded": true,
+   "entries": [
+    "SGD",
+    "warmup_cosine_lr",
+    "clip_grad_norm_",
+    "EMA"
+   ],
+   "hints": [
+    "Write each update rule down before coding: what does PyTorch store in the momentum buffer, and is weight decay added before or after momentum? For the schedule, sketch lr(step) and mark warmup_steps and total_steps.",
+    "SGD: g = grad + wd*p; buf = g on the first step, else buf = mu*buf + g; the step direction is g + mu*buf for Nesterov, buf otherwise; skip params whose .grad is None. Clipping: ONE norm over all gradients together, sqrt(sum of squared entries).",
+    "model.parameters() is a one-shot generator: list() it if you iterate twice. Clip coefficient = max_norm / (total_norm + 1e-6), applied only when it is < 1; return the pre-clip norm. EMA: keep detached clones, update under torch.no_grad() with s.mul_(decay).add_(p, alpha=1 - decay), copy buffers as-is."
+   ]
+  },
+  {
+   "id": "losses-from-scratch",
+   "legacy_ids": [],
+   "title": "Loss Functions from Scratch: Cross-Entropy, BCE, Focal and Dice",
+   "description": "Implement F.cross_entropy (class weights, ignore_index, label smoothing, K-dim inputs), stable BCE-with-logits with pos_weight, RetinaNet's sigmoid focal loss and soft Dice loss, matching PyTorch values and gradients.",
+   "difficulty": "medium",
+   "category": "dl-fundamentals",
+   "tracks": [
+    "basics"
+   ],
+   "companies": [],
+   "question": "v4/dl-fundamentals/losses-from-scratch/losses-from-scratch.ipynb",
+   "solution": "v4/dl-fundamentals/losses-from-scratch/losses-from-scratch_SOLN.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v4/dl-fundamentals/losses-from-scratch/losses-from-scratch.ipynb",
+   "frequency": "",
+   "company_confidence": {},
+   "llm_path_order": null,
+   "graded": true,
+   "entries": [
+    "cross_entropy",
+    "binary_cross_entropy_with_logits",
+    "sigmoid_focal_loss",
+    "dice_loss"
+   ],
+   "hints": [
+    "Work in log space. log_softmax(x) = x - logsumexp(x) never forms exp(large). For BCE, -log(sigmoid(x)) = softplus(-x) = log(1 + exp(-x)): compute it with torch.logaddexp(0, -x) or F.softplus(-x). Move the class axis last and flatten, so (N, C, d1, ...) becomes (M, C) with M targets.",
+    "Mean reduction is a WEIGHTED mean: divide by the sum of w[target] over non-ignored targets, not by N. Replace ignored targets by a valid index before gather(), then zero them out. PyTorch's label smoothing = (1-eps) * NLL + (eps/C) * sum_c w_c * (-log p_c), with both terms normalised by the same denominator.",
+    "BCE: loss = (1-y)*x + (1 + (pos_weight-1)*y) * softplus(-x). The hand-written max(-x,0) + log1p(exp(-|x|)) has the right value, but autograd gets the slope wrong at exactly x = 0. Focal: p_t = p*y + (1-p)*(1-y), loss = alpha_t * (1-p_t)^gamma * BCE with alpha_t = alpha*y + (1-alpha)*(1-y) (none when alpha < 0), averaged over ALL elements. Dice per sample: 1 - (2*sum(p*t) + eps) / (sum(p) + sum(t) + eps), then the batch mean."
+   ]
+  },
+  {
+   "id": "debug-training",
+   "legacy_ids": [],
+   "title": "Debug a Broken Training Pipeline",
+   "description": "Find and fix 9 silent bugs (data layout, normalisation, model head, training and evaluation loops) in a small image-classification pipeline, reasoning from symptoms to causes.",
+   "difficulty": "medium",
+   "category": "dl-fundamentals",
+   "tracks": [
+    "basics"
+   ],
+   "companies": [],
+   "question": "v4/dl-fundamentals/debug-training/debug-training.ipynb",
+   "solution": "v4/dl-fundamentals/debug-training/debug-training_SOLN.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v4/dl-fundamentals/debug-training/debug-training.ipynb",
+   "frequency": "",
+   "company_confidence": {},
+   "llm_path_order": null,
+   "graded": true,
+   "entries": [
+    "to_tensor",
+    "compute_normalization_stats",
+    "normalize",
+    "make_model",
+    "train_one_epoch",
+    "evaluate"
+   ],
+   "hints": [
+    "Debug from symptoms. Look at an image after every transform, print the per-channel mean/std of the normalised training set, and evaluate the same model twice. For each line of the training loop, ask which state it depends on and who resets that state.",
+    "Data side: reshape() never moves axes (only permute/transpose do), and that includes a reshape you use to group values by channel. Model side: what does nn.CrossEntropyLoss apply to its input itself? Loops: what puts a model into train/eval mode, what clears .grad, and what keeps an autograd graph alive?",
+    "There is one bug each in to_tensor, compute_normalization_stats and make_model, none in normalize, and three each in train_one_epoch (mode, gradient reset, loss bookkeeping) and evaluate (mode, autograd, how the predicted class is extracted)."
+   ]
+  },
+  {
+   "id": "bilinear-interpolation",
+   "legacy_ids": [],
+   "title": "Bilinear Interpolation from Scratch",
+   "description": "Re-implement F.interpolate's bilinear (both align_corners conventions) and nearest resize as vectorized gathers, matching PyTorch values and gradients.",
+   "difficulty": "medium",
+   "category": "vision",
+   "tracks": [
+    "basics"
+   ],
+   "companies": [],
+   "question": "v4/vision/bilinear-interpolation/bilinear-interpolation.ipynb",
+   "solution": "v4/vision/bilinear-interpolation/bilinear-interpolation_SOLN.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v4/vision/bilinear-interpolation/bilinear-interpolation.ipynb",
+   "frequency": "",
+   "company_confidence": {},
+   "llm_path_order": null,
+   "graded": true,
+   "entries": [
+    "resize_bilinear",
+    "resize_nearest"
+   ],
+   "hints": [
+    "Bilinear is separable: work out, for each output row, which two input rows it reads and with what weights, do the same for columns, then gather and blend. Those index/weight vectors depend only on the sizes, never on pixel values.",
+    "align_corners=False maps output index d to src = (d + 0.5) * in/out - 0.5 (pixel centres line up) and PyTorch clamps a negative src to 0; align_corners=True maps d to d * (in - 1)/(out - 1), and to 0 when out == 1.",
+    "From src: i0 = floor(src) clamped to in-1, i1 = min(i0 + 1, in-1), w = src - i0. Index whole rows with x[:, :, i0, :] and x[:, :, i1, :], blend with (1-w) and w reshaped to broadcast over the row axis, then repeat along the last axis."
+   ]
+  },
+  {
+   "id": "mixup-cutmix",
+   "legacy_ids": [],
+   "title": "Mixup and CutMix Augmentation",
+   "description": "Implement batch-level Mixup and CutMix with soft labels, a recomputed CutMix lambda and all randomness drawn from a torch.Generator.",
+   "difficulty": "easy",
+   "category": "vision",
+   "tracks": [
+    "basics"
+   ],
+   "companies": [],
+   "question": "v4/vision/mixup-cutmix/mixup-cutmix.ipynb",
+   "solution": "v4/vision/mixup-cutmix/mixup-cutmix_SOLN.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v4/vision/mixup-cutmix/mixup-cutmix.ipynb",
+   "frequency": "",
+   "company_confidence": {},
+   "llm_path_order": null,
+   "graded": true,
+   "entries": [
+    "mixup",
+    "cutmix"
+   ],
+   "hints": [
+    "Both functions pick one lam per batch and one random permutation perm of the batch; sample i is mixed with sample perm[i]. Labels are mixed with the same lam and perm, so a one-hot row becomes lam on its class and 1 - lam on the partner's.",
+    "torch.distributions.Beta cannot take a generator. A Beta(a, a) draw is G1 / (G1 + G2) with G1, G2 independent Gamma(a) draws, and torch._standard_gamma(concentration_tensor, generator=g) draws Gammas from your generator; torch.randperm and torch.randint take generator= too.",
+    "CutMix: cut_h = int(H * sqrt(1 - lam)), cut_w likewise, centre (cy, cx) uniform over the image, clip the box edges to [0, H] and [0, W], copy that region from x[perm] into a clone of x, then set lam = 1 - box_area / (H * W) before mixing labels."
+   ]
+  },
+  {
+   "id": "unet",
+   "legacy_ids": [],
+   "title": "Time-Conditioned U-Net (Diffusion Denoiser)",
+   "description": "Build a small time-conditioned U-Net (sinusoidal timestep embedding, GroupNorm ResBlocks, concatenated skips) of the kind used as a diffusion denoiser.",
+   "difficulty": "medium",
+   "category": "vision",
+   "tracks": [
+    "advanced"
+   ],
+   "companies": [],
+   "question": "v4/vision/unet/unet.ipynb",
+   "solution": "v4/vision/unet/unet_SOLN.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v4/vision/unet/unet.ipynb",
+   "frequency": "",
+   "company_confidence": {},
+   "llm_path_order": null,
+   "graded": true,
+   "entries": [
+    "SinusoidalTimeEmbedding",
+    "ResBlock",
+    "UNet"
+   ],
+   "hints": [
+    "Build bottom-up: the embedding is a fixed function of t (no parameters), ResBlock is norm-act-conv twice with the projected time embedding added in between, and the UNet only wires ResBlocks, downsamples and upsamples together.",
+    "In ResBlock the time projection gives (N, out_ch); index it with [:, :, None, None] so it broadcasts over H and W. When in_ch != out_ch the residual needs a 1x1 conv so skip(x) + h has matching channels. Return the sum as is, nothing after it.",
+    "In UNet.forward keep a list: after each encoder level's ResBlock append h, then downsample (except at the last level). In the decoder walk the levels in reverse: torch.cat([h, skips.pop()], dim=1), a ResBlock whose in_ch is the sum of both widths, then upsample (except at the top level)."
+   ]
+  },
+  {
+   "id": "vae",
+   "legacy_ids": [],
+   "title": "Variational Autoencoder (VAE) and the ELBO",
+   "description": "Build a VAE with the reparameterization trick and the negative-ELBO loss (Bernoulli BCE-with-logits + analytic KL, beta-weighted) and train it on binary bar images.",
+   "difficulty": "medium",
+   "category": "generative",
+   "tracks": [
+    "advanced"
+   ],
+   "companies": [],
+   "question": "v4/generative/vae/vae.ipynb",
+   "solution": "v4/generative/vae/vae_SOLN.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v4/generative/vae/vae.ipynb",
+   "frequency": "",
+   "company_confidence": {},
+   "llm_path_order": null,
+   "graded": true,
+   "entries": [
+    "VAE",
+    "vae_loss"
+   ],
+   "hints": [
+    "The encoder predicts logvar = log(sigma^2), not sigma, so the standard deviation is exp(0.5 * logvar). Sampling z = mu + sigma * eps with eps drawn separately keeps z a differentiable function of mu and logvar.",
+    "Reconstruction: F.binary_cross_entropy_with_logits(logits, x, reduction='sum') divided by the batch size, so it is summed over pixels and averaged over samples. Use the same convention for the KL: sum over latent dims, mean over the batch.",
+    "KL(N(mu, sigma^2) || N(0, 1)) per latent dim is -0.5 * (1 + logvar - mu^2 - exp(logvar)); sum it over latent dims, average over the batch, then loss = recon + beta * kl. sample(n) decodes z = torch.randn(n, latent_dim) and applies a sigmoid."
+   ]
+  },
+  {
+   "id": "flow-matching",
+   "legacy_ids": [],
+   "title": "Flow Matching (Rectified Flow) with Euler Sampling",
+   "description": "Implement conditional flow matching with the linear (rectified-flow) path used by SD3/Flux: interpolation, velocity-regression loss and an Euler ODE sampler.",
+   "difficulty": "medium",
+   "category": "generative",
+   "tracks": [
+    "advanced"
+   ],
+   "companies": [],
+   "question": "v4/generative/flow-matching/flow-matching.ipynb",
+   "solution": "v4/generative/flow-matching/flow-matching_SOLN.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v4/generative/flow-matching/flow-matching.ipynb",
+   "frequency": "",
+   "company_confidence": {},
+   "llm_path_order": null,
+   "graded": true,
+   "entries": [
+    "interpolate",
+    "flow_matching_loss",
+    "euler_sample"
+   ],
+   "hints": [
+    "Everything follows from one straight line per pair: x_t = (1 - t) * x0 + t * x1 moves from noise (t = 0) to data (t = 1) at constant speed, so its time derivative \u2014 the regression target \u2014 is x1 - x0, independent of t.",
+    "t has shape (N,) but x0 may be (N, D) or (N, C, H, W): reshape t to (N, 1, ..., 1) before mixing. When x0 / t are None, draw x0 with torch.randn_like(x1) and t with torch.rand(N) (one time per sample), then return the mean squared error between model(x_t, t) and x1 - x0.",
+    "Euler: dt = 1 / num_steps; for k in 0 .. num_steps-1, call the model at t = k * dt (a (N,) tensor filled with that value) and update x = x + dt * v. Do not update x0 in place and do not call the model at t = 1."
+   ]
+  },
+  {
+   "id": "dit-block",
+   "legacy_ids": [],
+   "title": "Diffusion Transformer (DiT) Block with adaLN-Zero",
+   "description": "Build a Diffusion Transformer block with adaLN-Zero conditioning, a sinusoidal timestep embedder, and patchify/unpatchify for latent images.",
+   "difficulty": "hard",
+   "category": "generative",
+   "tracks": [
+    "advanced"
+   ],
+   "companies": [],
+   "question": "v4/generative/dit-block/dit-block.ipynb",
+   "solution": "v4/generative/dit-block/dit-block_SOLN.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v4/generative/dit-block/dit-block.ipynb",
+   "frequency": "",
+   "company_confidence": {},
+   "llm_path_order": null,
+   "graded": true,
+   "entries": [
+    "modulate",
+    "TimestepEmbedder",
+    "DiTBlock",
+    "patchify",
+    "unpatchify"
+   ],
+   "hints": [
+    "adaLN-Zero turns the conditioning vector c into six (B, D) vectors with one Linear(D, 6D) after a SiLU: a shift, scale and gate for the attention branch and for the MLP branch. Initialise that Linear's weight and bias to zero \u2014 every gate is then 0, so each residual branch contributes nothing and the block starts as the identity.",
+    "Shapes: x is (B, N, D) but shift/scale/gate are (B, D) \u2014 unsqueeze(1) so one vector applies to every token of its sample. modulate is x * (1 + scale) + shift (the 1 + keeps scale = 0 neutral). Each branch is x = x + gate * f(modulate(LayerNorm(x), shift, scale)) with a LayerNorm that has no affine parameters (adaLN supplies them).",
+    "Chunk order: shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = adaLN_modulation(c).chunk(6, dim=1). patchify: reshape (B, C, H/p, p, W/p, p), permute to (B, H/p, W/p, p, p, C), flatten to (B, H*W/p^2, p*p*C); unpatchify undoes exactly those steps in reverse."
+   ]
+  },
+  {
+   "id": "fid",
+   "legacy_ids": [],
+   "title": "Fr\u00e9chet Inception Distance (FID) from Features",
+   "description": "Compute feature statistics and the Fr\u00e9chet distance between two Gaussians \u2014 the FID math \u2014 stably in float64 via a symmetric eigendecomposition.",
+   "difficulty": "easy",
+   "category": "generative",
+   "tracks": [
+    "advanced"
+   ],
+   "companies": [],
+   "question": "v4/generative/fid/fid.ipynb",
+   "solution": "v4/generative/fid/fid_SOLN.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v4/generative/fid/fid.ipynb",
+   "frequency": "",
+   "company_confidence": {},
+   "llm_path_order": null,
+   "graded": true,
+   "entries": [
+    "feature_statistics",
+    "frechet_distance"
+   ],
+   "hints": [
+    "FID fits a Gaussian to each feature set, so feature_statistics is just the mean and covariance of the rows. Use the unbiased covariance (divide by N - 1), the same convention as torch.cov(feats.T) and numpy.cov.",
+    "The only hard term is Tr((S1 S2)^{1/2}). S1 S2 is not symmetric, but it is similar to the symmetric PSD matrix S1^{1/2} S2 S1^{1/2}, so both have the same non-negative eigenvalues lambda_i and the trace is sum(sqrt(lambda_i)).",
+    "In float64: S1^{1/2} = V diag(sqrt(clamp(w, 0))) V^T from torch.linalg.eigh(S1); M = S1^{1/2} S2 S1^{1/2}; symmetrise M; then tr_covmean = eigvalsh(M).clamp(min=0).sqrt().sum() and FID = |mu1 - mu2|^2 + tr(S1) + tr(S2) - 2 * tr_covmean. Don't call eigvalsh on S1 @ S2 itself \u2014 it is not symmetric."
+   ]
+  },
+  {
+   "id": "siglip-loss",
+   "legacy_ids": [],
+   "title": "SigLIP: Sigmoid Loss for Language\u2013Image Pre-training",
+   "description": "Implement SigLIP's pairwise sigmoid image-text loss with a learnable temperature and bias, numerically stable and normalized by batch size as in the paper.",
+   "difficulty": "easy",
+   "category": "multimodal",
+   "tracks": [
+    "basics"
+   ],
+   "companies": [],
+   "question": "v4/multimodal/siglip-loss/siglip-loss.ipynb",
+   "solution": "v4/multimodal/siglip-loss/siglip-loss_SOLN.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v4/multimodal/siglip-loss/siglip-loss.ipynb",
+   "frequency": "",
+   "company_confidence": {},
+   "llm_path_order": null,
+   "graded": true,
+   "entries": [
+    "siglip_loss",
+    "SigLIPHead"
+   ],
+   "hints": [
+    "There is no softmax over the batch: every (image i, text j) pair is its own binary classification. The N matching pairs on the diagonal are positives (z = +1); the other N^2 - N pairs are negatives (z = -1).",
+    "L2-normalize both embedding sets along the feature dim, then logits = exp(logit_scale) * img @ txt.T + logit_bias. Build the +/-1 label matrix from torch.eye (2*I - 1).",
+    "loss = -(sum of log-sigmoid(z * logits)) / N \u2014 divide by the batch size N, not by N^2, so it is not a .mean() over the matrix. Use F.logsigmoid: log(sigmoid(x)) underflows to -inf for very negative x. SigLIPHead stores logit_scale = log(10) and logit_bias = -10 as nn.Parameters."
+   ]
+  },
+  {
+   "id": "vlm-connector",
+   "legacy_ids": [],
+   "title": "VLM Connector: MLP Projector, Perceiver Resampler and Image-Token Merging",
+   "description": "Build the pieces that connect a vision encoder to an LLM: a LLaVA-style MLP projector, a Flamingo-style Perceiver Resampler, and the vectorized merge of image features into the token sequence with LM labels.",
+   "difficulty": "medium",
+   "category": "multimodal",
+   "tracks": [
+    "advanced"
+   ],
+   "companies": [],
+   "question": "v4/multimodal/vlm-connector/vlm-connector.ipynb",
+   "solution": "v4/multimodal/vlm-connector/vlm-connector_SOLN.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v4/multimodal/vlm-connector/vlm-connector.ipynb",
+   "frequency": "",
+   "company_confidence": {},
+   "llm_path_order": null,
+   "graded": true,
+   "entries": [
+    "MLPProjector",
+    "PerceiverResampler",
+    "merge_image_features"
+   ],
+   "hints": [
+    "The projector is applied to every image token independently. The resampler turns a variable number of image tokens into a fixed number by letting num_queries learned vectors (an nn.Parameter) be the attention queries, with the image tokens as keys and values.",
+    "Resampler layer: LayerNorm the image tokens and the latents, q = W_q(latents), k/v from the image tokens (Flamingo also appends the latents to k/v), multi-head attention, residual add, then a pre-LN MLP with a second residual. Expand the latents over the batch dim; never add positions to the image tokens.",
+    "Merge: a (B, L) boolean mask of placeholder positions tells you everything. Check its per-row count equals T (else raise ValueError), then write the flattened (B*T, D) image features into a clone of text_embeds through that mask \u2014 boolean indexing visits positions in row-major order, which is exactly 'k-th feature of sample b -> k-th placeholder of sample b'. Labels = input_ids with placeholder and attention_mask == 0 positions replaced by ignore_index (no shift)."
+   ]
+  },
+  {
+   "id": "vector-search",
+   "legacy_ids": [],
+   "title": "Vector Search: Chunked Exact Top-k, an IVF Index and Recall@k",
+   "description": "Implement memory-bounded exact top-k search (cosine, dot, L2), an IVF approximate index with an inline k-means quantizer, and recall@k, as used for image-text retrieval and RAG.",
+   "difficulty": "medium",
+   "category": "multimodal",
+   "tracks": [
+    "basics"
+   ],
+   "companies": [],
+   "question": "v4/multimodal/vector-search/vector-search.ipynb",
+   "solution": "v4/multimodal/vector-search/vector-search_SOLN.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v4/multimodal/vector-search/vector-search.ipynb",
+   "frequency": "",
+   "company_confidence": {},
+   "llm_path_order": null,
+   "graded": true,
+   "entries": [
+    "exact_topk",
+    "IVFIndex",
+    "recall_at_k"
+   ],
+   "hints": [
+    "Exact search is one matrix multiply per database chunk: compute a (Q, chunk) score block, keep its best k, and merge that with the best k found so far (concatenate the two candidate sets and take top-k again). Remember to add the chunk's start offset to the indices.",
+    "cosine = dot product of L2-normalized vectors; l2 = ||q||^2 - 2 q.d + ||d||^2, clamped at 0, and you want the SMALLEST k (topk(largest=False)). A chunk can be smaller than k, so take min(k, chunk) there.",
+    "IVF: k-means (random initial centroids from the data, alternate assign / recompute the mean, keep a centroid whose cluster went empty) gives nlist centroids; add() appends each vector's global id to its nearest centroid's list; search() scores only the vectors in the nprobe nearest lists and pads with id -1 and the worst score. recall@k = |approx \u2229 exact| / k averaged over queries (order does not matter, -1 never counts)."
+   ]
+  },
+  {
+   "id": "ring-allreduce",
+   "legacy_ids": [],
+   "title": "Ring All-Reduce and DDP Gradient Averaging",
+   "description": "Simulate W ranks and implement the bandwidth-optimal ring all-reduce (reduce-scatter + all-gather) through a message-logging network, then use it to average gradients across model replicas like PyTorch DDP.",
+   "difficulty": "hard",
+   "category": "systems",
+   "tracks": [
+    "advanced"
+   ],
+   "companies": [],
+   "question": "v4/systems/ring-allreduce/ring-allreduce.ipynb",
+   "solution": "v4/systems/ring-allreduce/ring-allreduce_SOLN.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v4/systems/ring-allreduce/ring-allreduce.ipynb",
+   "frequency": "",
+   "company_confidence": {},
+   "llm_path_order": null,
+   "graded": true,
+   "entries": [
+    "ring_allreduce",
+    "ddp_average_gradients"
+   ],
+   "hints": [
+    "Give every rank a private working copy split into W chunks with torch.tensor_split (sizes differ by at most one, empty chunks are fine). Phase 1 (reduce-scatter) leaves each rank owning one fully-summed chunk; phase 2 (all-gather) passes those finished chunks around the ring.",
+    "Reduce-scatter step s: every rank r first sends chunk (r - s) % W to rank (r + 1) % W, then every rank receives from rank (r - 1) % W and ADDS the message into chunk (r - 1 - s) % W. After W - 1 steps rank r owns the complete sum of chunk (r + 1) % W.",
+    "All-gather step s: rank r sends chunk (r + 1 - s) % W, receives into chunk (r - s) % W and OVERWRITES it (copy_, never +=). For DDP: torch.cat the trainable grads (zeros_like(p) where p.grad is None) into one flat vector per replica, all-reduce once, divide by W, then torch.split by p.numel() and view_as(p) to write the grads back."
+   ]
+  },
+  {
+   "id": "int8-quantization",
+   "legacy_ids": [],
+   "title": "INT8 Quantization from Scratch",
+   "description": "Implement symmetric (per-tensor and per-channel) and asymmetric int8 quantization, dequantization, and an int8 linear layer with exact integer accumulation and a single float rescale.",
+   "difficulty": "medium",
+   "category": "systems",
+   "tracks": [
+    "advanced"
+   ],
+   "companies": [],
+   "question": "v4/systems/int8-quantization/int8-quantization.ipynb",
+   "solution": "v4/systems/int8-quantization/int8-quantization_SOLN.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v4/systems/int8-quantization/int8-quantization.ipynb",
+   "frequency": "",
+   "company_confidence": {},
+   "llm_path_order": null,
+   "graded": true,
+   "entries": [
+    "quantize_symmetric",
+    "quantize_asymmetric",
+    "dequantize",
+    "int8_linear"
+   ],
+   "hints": [
+    "Symmetric: qmax = 2^(b-1) - 1 (127 for 8 bits) and the scale maps the largest |x| exactly onto qmax. Asymmetric: the 2^b - 1 steps span [min(x.min(), 0), max(x.max(), 0)] and the zero point is the integer code that represents 0.0.",
+    "Per-channel along `axis` means one amax per index of that dimension: reduce |x| over every OTHER dim, then reshape the (C,) scale to broadcast (size C at `axis`, 1 elsewhere). Guard amax == 0 so the scale stays positive. Round with torch.round before casting \u2014 .to(torch.int8) alone truncates toward zero.",
+    "int8_linear: upcast before subtracting the zero point (uint8 - int underflows) and before the matmul (int8 @ int8 stays int8 and wraps around). (x_q.int() - zp) @ w_q.int().T is exact in int32; then one float multiply by x_scale * w_scale, where a per-channel w_scale of shape (out_features,) broadcasts over the last dim of the (M, out_features) result."
+   ]
+  },
+  {
+   "id": "memory-flops-estimation",
+   "legacy_ids": [],
+   "title": "Estimate Transformer Parameters, Memory and FLOPs",
+   "description": "Compute the exact parameter count of a Llama-style decoder, the training memory for weights, gradients and optimizer state, the KV-cache size and the 6ND training FLOPs \u2014 the back-of-envelope maths of infra interviews.",
+   "difficulty": "medium",
+   "category": "systems",
+   "tracks": [
+    "advanced"
+   ],
+   "companies": [],
+   "question": "v4/systems/memory-flops-estimation/memory-flops-estimation.ipynb",
+   "solution": "v4/systems/memory-flops-estimation/memory-flops-estimation_SOLN.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v4/systems/memory-flops-estimation/memory-flops-estimation.ipynb",
+   "frequency": "",
+   "company_confidence": {},
+   "llm_path_order": null,
+   "graded": true,
+   "entries": [
+    "transformer_params",
+    "training_memory_gb",
+    "kv_cache_bytes",
+    "training_flops"
+   ],
+   "hints": [
+    "Count module by module: token embedding (vocab x d), then per layer the attention projections, the MLP and two norms, then a final norm and the LM head. With GQA, k_proj and v_proj only produce n_kv_heads * head_dim outputs, where head_dim = d_model // n_heads.",
+    "A gated (SwiGLU) MLP has three d x d_ff matrices (gate, up, down), a plain MLP two. RMSNorm has a weight only (d); LayerNorm has weight + bias (2d). Tied embeddings mean the LM head reuses the embedding matrix, so count it once. bias=True adds one vector per Linear in attention and MLP (its out_features), never on the LM head.",
+    "Memory per parameter: fp32 = 4 (weights) + 4 (grads) + optimizer; bf16/fp16-mixed = 2 + 2 + 4 (fp32 master copy) + optimizer; AdamW/Adam add 8 (m and v in fp32), SGD with momentum 4, plain SGD 0. KV cache = 2 (K and V) * batch * seq_len * n_layers * n_kv_heads * head_dim * bytes. Training FLOPs = 6 * N * D: 2ND forward, 4ND backward."
+   ]
+  },
+  {
+   "id": "vq-vae",
+   "legacy_ids": [],
+   "title": "Vector Quantization (VQ-VAE) with Straight-Through Gradients",
+   "description": "Implement a VQ-VAE quantizer (vectorized nearest-code search, straight-through gradients, codebook + commitment losses), its EMA-codebook variant with Laplace smoothing, and the codebook-perplexity diagnostic.",
+   "difficulty": "medium",
+   "category": "generative",
+   "tracks": [
+    "advanced"
+   ],
+   "companies": [],
+   "question": "v4/generative/vq-vae/vq-vae.ipynb",
+   "solution": "v4/generative/vq-vae/vq-vae_SOLN.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v4/generative/vq-vae/vq-vae.ipynb",
+   "frequency": "",
+   "company_confidence": {},
+   "llm_path_order": null,
+   "graded": true,
+   "entries": [
+    "VectorQuantizer",
+    "VectorQuantizerEMA",
+    "codebook_perplexity"
+   ],
+   "hints": [
+    "The quantizer is a nearest-neighbour lookup over the codebook, done for every spatial position at once: move the channel axis last and flatten so each row is one D-dimensional vector, compute all row-to-code distances in one shot, take the argmin, then undo the layout. The two loss terms have the same value; what makes them different is which side is detached.",
+    "z.permute(0, 2, 3, 1).reshape(-1, D) gives (B*H*W, D) rows (a plain reshape of a channel-first tensor mixes channels and positions). ||z - e||^2 = ||z||^2 - 2 z.e + ||e||^2 gives the (N, K) distance matrix with one matmul. loss = mse(z_q, z.detach()) + beta * mse(z, z_q.detach()); straight-through output z + (z_q - z).detach(). EMA: count the assignments n_k and sum the assigned vectors s_k (one_hot(idx).T @ z_flat), all under torch.no_grad().",
+    "EMA step in training mode only, after computing z_q with the current codebook: N = decay*N + (1-decay)*n; m = decay*m + (1-decay)*s; total = N.sum(); N_s = (N + eps) / (total + K*eps) * total; codebook = m / N_s[:, None] (keep the raw N in the buffer). Perplexity: p = bincount(indices.flatten(), minlength=K) / count; exp(-sum p log p) with 0 log 0 = 0 (torch.special.xlogy)."
+   ]
+  },
+  {
+   "id": "diffusion-parameterizations",
+   "legacy_ids": [],
+   "title": "Diffusion Schedules and Parameterizations: \u03b5, x\u2080, v, SNR",
+   "description": "Implement the linear and cosine noise schedules, the eps / x0 / v / score conversions, SNR and Min-SNR-gamma loss weights, zero-terminal-SNR rescaling and the DDPM posterior as exact, vectorized float64 functions.",
+   "difficulty": "medium",
+   "category": "generative",
+   "tracks": [
+    "advanced"
+   ],
+   "companies": [],
+   "question": "v4/generative/diffusion-parameterizations/diffusion-parameterizations.ipynb",
+   "solution": "v4/generative/diffusion-parameterizations/diffusion-parameterizations_SOLN.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v4/generative/diffusion-parameterizations/diffusion-parameterizations.ipynb",
+   "frequency": "",
+   "company_confidence": {},
+   "llm_path_order": null,
+   "graded": true,
+   "entries": [
+    "linear_beta_schedule",
+    "cosine_alpha_bar",
+    "eps_to_x0",
+    "x0_to_eps",
+    "v_from_x0_eps",
+    "v_to_x0_eps",
+    "eps_to_score",
+    "snr",
+    "min_snr_weight",
+    "rescale_zero_terminal_snr",
+    "q_posterior"
+   ],
+   "hints": [
+    "Write everything in terms of the signal scale alpha_t = sqrt(abar_t) and the noise scale sigma_t = sqrt(1 - abar_t), with alpha^2 + sigma^2 = 1: x_t = alpha x0 + sigma eps is one linear equation, so knowing x_t and any one of (x0, eps, v) gives the others. Keep arrays 0-based (index i is the paper's t = i + 1) and give each sample its own abar.",
+    "Reshape the (B,) abar to (B, 1, ..., 1) before mixing with (B, C, H, W) tensors. v = alpha*eps - sigma*x0 is a rotation of (x0, eps) by the angle phi = atan2(sigma, alpha), so the inverse is the transposed rotation. Cosine schedule: evaluate f at t = 0..T, take betas = 1 - f[1:]/f[:-1], clip at max_beta, then cumprod(1 - betas). For min-SNR, convert the x0-space weight min(SNR, gamma) to the eps / v losses by how their errors scale.",
+    "eps weight = min(SNR, gamma)/SNR written as clamp(gamma/SNR, max=1) (finite at SNR = 0); v weight = min(SNR, gamma)/(SNR + 1). Zero terminal SNR: s = sqrt(cumprod(1 - betas)); s = (s - s[-1]) * s[0] / (s[0] - s[-1]); abar = s^2; alphas = [abar[0], abar[1:]/abar[:-1]]; betas = 1 - alphas. Posterior: build abar_prev = [1, abar[:-1]] and gather everything at t (index 0 must give mean x0 and variance 0 \u2014 do not index abar[t - 1])."
+   ]
+  },
+  {
+   "id": "roi-align",
+   "legacy_ids": [],
+   "title": "RoIAlign (and RoIPool) from Scratch",
+   "description": "Implement torchvision-exact RoIAlign (half-pixel aligned mode, adaptive sampling grid, border cut-off, input gradients) and the quantized RoIPool it replaced, vectorized over bins and sampling points.",
+   "difficulty": "hard",
+   "category": "vision",
+   "tracks": [
+    "advanced"
+   ],
+   "companies": [],
+   "question": "v4/vision/roi-align/roi-align.ipynb",
+   "solution": "v4/vision/roi-align/roi-align_SOLN.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v4/vision/roi-align/roi-align.ipynb",
+   "frequency": "",
+   "company_confidence": {},
+   "llm_path_order": null,
+   "graded": true,
+   "entries": [
+    "roi_align",
+    "roi_pool"
+   ],
+   "hints": [
+    "Each output bin is the AVERAGE of a small regular grid of bilinear samples, and nothing is rounded: the box is mapped to continuous feature-map coordinates (coord * spatial_scale, minus 0.5 when aligned). The sample positions are a tensor product of a y-grid and an x-grid, so compute them per axis, once per box, and reuse the two-tap gather from your bilinear-interpolation solution.",
+    "Per box and axis: roi = end - start (clamped to >= 1 only when aligned=False), bin = roi / out, grid = sampling_ratio if > 0 else ceil(roi / out), sample y = start + p * bin + (i + 0.5) * bin / grid. A sample with y < -1 or y > H contributes 0; otherwise clamp y to [0, H - 1] and use taps floor(y) and min(floor(y) + 1, H - 1). Divide the sum by max(grid_h * grid_w, 1).",
+    "For one box: build y of shape (out_h * grid_h,) and x of shape (out_w * grid_w,), turn each into (low index, high index, low weight, high weight) with the weights multiplied by the in-range mask; gather rows img[:, y_low] and img[:, y_high] and blend -> (C, out_h*grid_h, W); gather columns the same way -> (C, out_h*grid_h, out_w*grid_w); view as (C, out_h, grid_h, out_w, grid_w), sum dims 2 and 4, divide. roi_pool: round each scaled coordinate half away from zero (sign(v) * floor(|v| + 0.5)), roi = end - start + 1 (>= 1), bin p spans [floor(p*bin), ceil((p+1)*bin)) + start clipped to [0, H], max over it, 0 if empty."
+   ]
+  },
+  {
+   "id": "segmentation-metrics",
+   "legacy_ids": [],
+   "title": "Segmentation Metrics: Confusion Matrix, mIoU and Dice",
+   "description": "Build a single-bincount pixel confusion matrix with ignore/void handling, per-class IoU and Dice, pixel and mean class accuracy, and a streaming dataset-level mIoU accumulator.",
+   "difficulty": "easy",
+   "category": "vision",
+   "tracks": [
+    "basics"
+   ],
+   "companies": [],
+   "question": "v4/vision/segmentation-metrics/segmentation-metrics.ipynb",
+   "solution": "v4/vision/segmentation-metrics/segmentation-metrics_SOLN.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v4/vision/segmentation-metrics/segmentation-metrics.ipynb",
+   "frequency": "",
+   "company_confidence": {},
+   "llm_path_order": null,
+   "graded": true,
+   "entries": [
+    "confusion_matrix",
+    "iou_per_class",
+    "mean_iou",
+    "dice_per_class",
+    "pixel_accuracy",
+    "mean_class_accuracy",
+    "SegMetric"
+   ],
+   "hints": [
+    "Every metric here is a function of one C x C matrix of pixel counts. Build it once: flatten, keep only the pixels whose target is a real class (in range and not ignore_index), and turn each (target, pred) pair into ONE integer so a single counting op fills the whole matrix. After that, every metric is a combination of the diagonal, the row sums and the column sums.",
+    "index = target * C + pred, counted with torch.bincount(index, minlength=C * C) and reshaped to (C, C) so rows are targets; cast to int64 first (uint8 PNG masks overflow). TP = diag, FN = row sum - TP, FP = column sum - TP; IoU = TP / (TP + FP + FN), Dice = 2TP / (2TP + FP + FN). Divide in float64 and let 0 / 0 become NaN, then average with torch.nanmean.",
+    "keep = (target >= 0) & (target < C) & (target != ignore_index); if pred[keep] has anything outside [0, C) raise ValueError; cm = bincount(C * t + p, minlength=C*C).view(C, C). iou = diag / (rows + cols - diag); mean_iou = nanmean(iou); pixel accuracy = diag.sum() / cm.sum(); mean class accuracy = nanmean(diag / rows). SegMetric holds a (C, C) int64 buffer, adds each batch's matrix in update(), and compute() runs the metric functions on the sum."
+   ]
+  },
+  {
+   "id": "self-supervised-losses",
+   "legacy_ids": [],
+   "title": "Self-Supervised Objectives: SimCLR's NT-Xent and DINO",
+   "description": "Implement SimCLR's NT-Xent loss over 2N views, DINO's centred and sharpened multi-crop self-distillation loss with its center buffer, and the in-place EMA teacher update.",
+   "difficulty": "medium",
+   "category": "vision",
+   "tracks": [
+    "advanced"
+   ],
+   "companies": [],
+   "question": "v4/vision/self-supervised-losses/self-supervised-losses.ipynb",
+   "solution": "v4/vision/self-supervised-losses/self-supervised-losses_SOLN.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v4/vision/self-supervised-losses/self-supervised-losses.ipynb",
+   "frequency": "",
+   "company_confidence": {},
+   "llm_path_order": null,
+   "graded": true,
+   "entries": [
+    "nt_xent_loss",
+    "DINOLoss",
+    "ema_update_"
+   ],
+   "hints": [
+    "NT-Xent: stack both views into one (2N, D) batch so every view is an anchor and every other view is a candidate; the positive of view i is the other augmentation of the same image. DINO: the teacher only sees the 2 global crops, the student sees all crops, and a crop is never compared with itself. The EMA update is not part of training: keep autograd out of it.",
+    "NT-Xent: L2-normalise, build the (2N, 2N) cosine matrix divided by tau, and remove the diagonal from the softmax by setting it to -inf (not 0). Then it is cross-entropy with target i + N for i < N and i - N otherwise, averaged over 2N rows. DINO: teacher probabilities = softmax((t - center) / teacher_temp) computed on detached outputs; student log-probabilities = log_softmax(s / student_temp); the center update uses the TEACHER outputs and happens after the loss.",
+    "DINO: chunk the student output into ncrops blocks and the teacher's into 2; for each teacher block iq and student block v with v != iq, add the batch mean of the cross-entropy -sum_k q_k log p_k; divide by the number of terms, 2 * (ncrops - 1). Then, under no_grad, move the center: m times the old center plus (1 - m) times the mean of all 2B teacher rows. EMA: under no_grad, scale each teacher parameter by m in place and add (1 - m) times the matching student parameter; leave buffers alone."
+   ]
+  },
+  {
+   "id": "vit-components",
+   "legacy_ids": [],
+   "title": "Vision Transformer Building Blocks: Patch Embedding, Position-Embedding Interpolation, DropPath",
+   "description": "Implement ViT patch embedding (Conv2d and unfold + matmul), DeiT-style position-embedding interpolation for a new resolution, per-sample DropPath, a pre-norm block with LayerScale, and a small ViT classifier.",
+   "difficulty": "medium",
+   "category": "vision",
+   "tracks": [
+    "basics"
+   ],
+   "companies": [],
+   "question": "v4/vision/vit-components/vit-components.ipynb",
+   "solution": "v4/vision/vit-components/vit-components_SOLN.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v4/vision/vit-components/vit-components.ipynb",
+   "frequency": "",
+   "company_confidence": {},
+   "llm_path_order": null,
+   "graded": true,
+   "entries": [
+    "PatchEmbed",
+    "patchify_linear",
+    "interpolate_pos_embed",
+    "DropPath",
+    "ViTBlock",
+    "ViT"
+   ],
+   "hints": [
+    "A patch embedding is a convolution whose kernel equals its stride, and its output grid flattened row by row is the token sequence. Position embeddings are an image of D-channel pixels plus a few prefix rows that are not on the grid. DropPath drops a whole residual branch for a whole sample, not individual activations.",
+    "patchify_linear: F.unfold with kernel = stride = p returns (B, C*p*p, N), each column ordered (channel, row, col) - the same order as the Conv2d weight flattened to (D, C*p*p). interpolate_pos_embed: the grid rows are row-major (h, w, D) but F.interpolate wants (1, D, h, w), so reshape AND permute (a reshape alone scrambles them); bicubic with align_corners=False. DropPath: one Bernoulli(keep_prob) draw per sample, mask shape (B, 1, ..., 1), kept samples divided by keep_prob.",
+    "PatchEmbed: conv, flatten the two spatial dims, move channels last. interpolate_pos_embed: split off the prefix rows, reshape + permute the grid, interpolate to (new_h, new_w), permute back, flatten, and put the untouched prefix in front again. DropPath: identity unless training and drop_prob > 0, otherwise multiply by the scaled mask (no division when keep_prob is 0). ViTBlock: add DropPath(LayerScale(attention of LN1(x))) to x, then the same with LN2 and the MLP; create LayerScale whenever init_values is not None. ViT: CLS token in front of the patch tokens, add pos_embed, blocks, final LayerNorm, head on token 0; block i drops with the i-th of `depth` evenly spaced rates from 0 to drop_path_rate."
+   ]
+  },
+  {
+   "id": "tensor-parallel",
+   "legacy_ids": [],
+   "title": "Megatron-Style Tensor Parallelism (Simulated Ranks)",
+   "description": "Simulate W tensor-parallel ranks and implement Megatron-LM's column- and row-parallel sharding, the conjugate f/g autograd operators, and a TP MLP and attention block that match the dense model's outputs and gradients with one all-reduce each way.",
+   "difficulty": "hard",
+   "category": "systems",
+   "tracks": [
+    "advanced"
+   ],
+   "companies": [],
+   "question": "v4/systems/tensor-parallel/tensor-parallel.ipynb",
+   "solution": "v4/systems/tensor-parallel/tensor-parallel_SOLN.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v4/systems/tensor-parallel/tensor-parallel.ipynb",
+   "frequency": "",
+   "company_confidence": {},
+   "llm_path_order": null,
+   "graded": true,
+   "entries": [
+    "shard_column",
+    "shard_row",
+    "shard_qkv",
+    "copy_to_tp",
+    "reduce_from_tp",
+    "tp_mlp_forward",
+    "tp_attention_forward"
+   ],
+   "hints": [
+    "Translate Megatron's Y = XA into PyTorch first: nn.Linear stores W = A^T with shape (out, in). Column-parallel = each rank owns a slice of the OUTPUT features (rows of W, dim 0, plus that slice of the bias); row-parallel = each rank owns a slice of the INPUT features (columns of W, dim 1) and produces a partial sum of the full output, so the bias cannot be split.",
+    "f and g are torch.autograd.Functions whose forward takes (ctx, comm, *tensors) and returns a tuple; backward must return one gradient per forward input, so its first value is None (for comm). f: forward passes the W tensors through unchanged, backward makes ONE all-reduce of the W incoming gradients. g: forward makes the one all-reduce, backward passes the W gradients straight through. comm.all_reduce on its own is not differentiable \u2014 exactly like NCCL.",
+    "MLP: run f on the inputs; on each rank apply the local column-parallel linear and the activation, then multiply by that rank's row-parallel weight WITHOUT a bias; run g on the W partial sums; add the replicated b2 to each result. Attention: same skeleton \u2014 split the local fused projection along its last dim into this rank's q, k, v, view them as n_heads // W heads of size d // n_heads, run causal attention, merge the heads and multiply by the rank's w_o slice. shard_qkv: column-shard W_q, W_k and W_v (and the three bias thirds) separately, then concatenate rank r's three pieces."
+   ]
+  },
+  {
+   "id": "sequence-packing",
+   "legacy_ids": [],
+   "title": "Sequence Packing with Document Masks",
+   "description": "Pack variable-length documents into fixed-length rows with first-fit-decreasing bin packing, then build the position ids, FlashAttention-style cu_seqlens, boundary-aware next-token labels and block-diagonal causal mask that make the packed batch exactly equivalent to running each document alone.",
+   "difficulty": "medium",
+   "category": "systems",
+   "tracks": [
+    "advanced"
+   ],
+   "companies": [],
+   "question": "v4/systems/sequence-packing/sequence-packing.ipynb",
+   "solution": "v4/systems/sequence-packing/sequence-packing_SOLN.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v4/systems/sequence-packing/sequence-packing.ipynb",
+   "frequency": "",
+   "company_confidence": {},
+   "llm_path_order": null,
+   "graded": true,
+   "entries": [
+    "pack_sequences",
+    "packed_labels",
+    "document_causal_mask"
+   ],
+   "hints": [
+    "Packing is a bin-packing problem: rows are bins of capacity max_len. Sort longest first, then each document goes into the first row that still has room. Everything else (positions, labels, mask) can be derived from doc_ids, the per-token document index.",
+    "Keep a list of row contents and a list of free space per row; a document of length n goes to the lowest r with free[r] >= n. cu_seqlens is a 0 followed by the cumulative sum of the document lengths in row-major order, as int32. Labels: compare each doc id with its right neighbour (a shifted slice of doc_ids). Mask: broadcast a (R, L, 1) view of doc_ids against a (R, 1, L) view.",
+    "Labels: start from a tensor full of -100; for every column but the last, copy the NEXT token wherever the next position belongs to the same document and the current position is not padding. Mask: AND the same-document comparison with a lower-triangular (causal) L x L matrix. Keep the comparison -1 == -1 as True \u2014 padding then forms its own causal block, so every row has at least its diagonal and no softmax row is all -inf."
+   ]
+  },
+  {
+   "id": "conv-bn-fusion",
+   "legacy_ids": [],
+   "title": "Inference-Time Re-parameterization: Conv\u2013BN Fusion and RepVGG Merging",
+   "description": "Fold eval-mode BatchNorm into the preceding conv or linear layer (grouped/depthwise, no bias, affine=False, any eps) and merge a three-branch RepVGG block into a single 3\u00d73 convolution.",
+   "difficulty": "easy",
+   "category": "systems",
+   "tracks": [
+    "basics"
+   ],
+   "companies": [],
+   "question": "v4/systems/conv-bn-fusion/conv-bn-fusion.ipynb",
+   "solution": "v4/systems/conv-bn-fusion/conv-bn-fusion_SOLN.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v4/systems/conv-bn-fusion/conv-bn-fusion.ipynb",
+   "frequency": "",
+   "company_confidence": {},
+   "llm_path_order": null,
+   "graded": true,
+   "entries": [
+    "fuse_conv_bn",
+    "fuse_linear_bn",
+    "repvgg_merge"
+   ],
+   "hints": [
+    "In eval mode BatchNorm is a fixed per-channel affine map y = s * x + t, with s = gamma / sqrt(running_var + eps) and t = beta - s * running_mean. A per-OUTPUT-channel scale and shift commute with the convolution, so they can be pushed into the filters and the bias.",
+    "Dim 0 of a conv (or linear) weight is the output channel, also for grouped and depthwise convs: W' = W * s reshaped to (C_out, 1, 1, ...), b' = (b - mean) * s + beta. Use b = 0 when conv.bias is None, gamma = 1 and beta = 0 when bn.affine is False, and bn.eps INSIDE the square root. Start from copy.deepcopy(conv) and assign new nn.Parameters.",
+    "RepVGG: fuse each branch with its own BN; zero-pad the fused 1x1 kernel by one pixel on every side so it lands at index [1, 1] of a 3x3; the identity BN is the fusion of a 3x3 'identity conv' whose kernel is 1 at [o, o % (C // groups), 1, 1] and 0 elsewhere; then add the three kernels and the three biases into one conv with kernel 3, padding 1 and the branches' stride and groups."
+   ]
+  },
+  {
+   "id": "ab-testing",
+   "legacy_ids": [],
+   "title": "Online Experiment Statistics: z-test, Bootstrap, Power, SRM and CUPED",
+   "description": "Analyse an online A/B test in PyTorch: pooled two-proportion z-test and Wald CI, a vectorized percentile bootstrap, power-based sample size, a sample-ratio-mismatch check and CUPED variance reduction.",
+   "difficulty": "medium",
+   "category": "ml-fundamentals",
+   "tracks": [
+    "basics"
+   ],
+   "companies": [],
+   "question": "v4/ml-fundamentals/ab-testing/ab-testing.ipynb",
+   "solution": "v4/ml-fundamentals/ab-testing/ab-testing_SOLN.ipynb",
+   "colab": "https://colab.research.google.com/github/Fengyee/TorchLeet/blob/main/v4/ml-fundamentals/ab-testing/ab-testing.ipynb",
+   "frequency": "",
+   "company_confidence": {},
+   "llm_path_order": null,
+   "graded": true,
+   "entries": [
+    "two_proportion_ztest",
+    "diff_ci",
+    "bootstrap_ci",
+    "sample_size_per_arm",
+    "srm_pvalue",
+    "cuped"
+   ],
+   "hints": [
+    "Every function here is a few lines of float64 arithmetic. The standard normal CDF is torch.special.ndtr, its inverse (z_{1-alpha/2}) is torch.special.ndtri, and two-sided tail probabilities are torch.special.erfc(|z| / sqrt(2)). A chi-square with 1 degree of freedom is the square of a standard normal. Convert inputs with torch.as_tensor(x, dtype=torch.float64): int tensors divide into float32 otherwise.",
+    "The test asks 'how surprising is this diff if p_A == p_B?', so its SE uses the POOLED rate (x_A + x_B) / (n_A + n_B). The CI is built around the observed rates, so it uses the UNPOOLED SE. Bootstrap: draw an (n_boot, n_a) index matrix for a and a separate (n_boot, n_b) one for b with torch.randint(..., generator=generator), gather, take the row means, then torch.quantile at alpha/2 and 1 - alpha/2. CUPED's theta is the OLS slope of y on x.",
+    "Sample size: the test rejects when |diff| > z_{1-alpha/2} * SE0. Require that to happen with probability `power` when the true diff is d: sqrt(n) * |d| = z_{1-alpha/2} * sqrt(2 pbar (1 - pbar)) + z_power * sqrt(p1 q1 + p2 q2). Solve for n and take math.ceil. SRM: expected counts are N * r and N * (1 - r), chi2 = sum (obs - exp)^2 / exp, and p = erfc(sqrt(chi2 / 2)). CUPED: theta = mean(xc * yc) / mean(xc * xc) with xc = x - mean(x); return y - theta * xc."
    ]
   }
  ]

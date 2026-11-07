@@ -11,9 +11,9 @@ tracks = ["advanced", "llm-path"]
 
 # GENERATED from the grader spec — edit python/torchleet/problems/*.py, then run: generate.py hints
 hints = [
-  "get_batch_logps sums the log-probability of each actual next token in the sequence.",
-  "Shift by one: logits at position t predict the token at position t+1.",
-  "DPO = -logsigmoid(beta * ((pi_chosen - ref_chosen) - (pi_rejected - ref_rejected))).",
+  "get_batch_logps sums the log-probability of each actual next token, counting only the positions where loss_mask is 1 (the response, not the prompt or padding).",
+  "Shift by one: logits at position t predict the token at position t+1, so pair logits[:, :-1] with input_ids[:, 1:] — and with loss_mask[:, 1:].",
+  "DPO = -logsigmoid(beta * ((pi_chosen - ref_chosen) - (pi_rejected - ref_rejected))), averaged over the batch.",
 ]
 
 [notebooks]
@@ -21,7 +21,7 @@ question = "dpo.ipynb"
 solution = "dpo_SOLN.ipynb"
 
 [grading]
-tier = "A"        # A=auto-graded B=partial C=not auto-graded (SEEDED, confirm)
+tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["get_batch_logps", "dpo_loss"]
 extras = []
 device = "cpu"

@@ -6,12 +6,19 @@ frequency = "emerging"
 category = "data-loading"
 tracks = ["basics"]
 
+# GENERATED from the grader spec — edit python/torchleet/problems/*.py, then run: generate.py hints
+hints = [
+  "Pull buffer_size items from iter(base_dataset) into a list first; when the stream runs dry before that, you simply start with a smaller buffer.",
+  "Then, for every further item from the stream: pick a uniformly random slot, yield what is in it, and put the new item in that slot.",
+  "When the stream is exhausted, the buffer still holds up to buffer_size items: random.shuffle it and yield them all — otherwise they are lost.",
+]
+
 [notebooks]
 question = "buffered-loading.ipynb"
 solution = "buffered-loading_SOLN.ipynb"
 
 [grading]
-tier = "C"
-entries = []
+tier = "A"        # A = auto-graded by check(), C = not graded
+entries = ["ShuffleBufferDataset"]
 extras = []
 device = "cpu"

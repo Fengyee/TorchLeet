@@ -1,0 +1,25 @@
+id = "iou-nms"
+title = "Box IoU and Non-Maximum Suppression"
+description = "Implement vectorized pairwise box IoU, greedy non-maximum suppression, and class-aware batched NMS from scratch."
+difficulty = "easy"
+number = 5
+set = "v4"
+category = "vision"
+tracks = ["basics"]
+
+# GENERATED from the grader spec — edit python/torchleet/problems/*.py, then run: generate.py hints
+hints = [
+  "box_iou: give boxes1 a new axis so it is (N, 1, 4) and boxes2 (1, M, 4); elementwise max/min of the corners then broadcast to (N, M) with no loop. NMS itself is inherently sequential: sort by score and walk the list once.",
+  "Intersection width = (min of the right edges - max of the left edges), clamped at 0; same for height. Union = area1 + area2 - intersection, and it can be 0 for two zero-area boxes. In NMS only a box you KEEP may suppress others, and it suppresses when IoU > threshold (strictly).",
+  "nms: compute the full IoU matrix once, visit boxes in descending-score order, skip any already suppressed, otherwise keep it and mark everything with IoU above the threshold as suppressed. batched_nms: either run nms per label, or shift every box by label * (max - min + 1) so boxes of different labels can never overlap and call nms once.",
+]
+
+[notebooks]
+question = "iou-nms.ipynb"
+solution = "iou-nms_SOLN.ipynb"
+
+[grading]
+tier = "A"        # A = auto-graded by check(), C = not graded
+entries = ["box_iou", "nms", "batched_nms"]
+extras = []
+device = "cpu"

@@ -13,7 +13,7 @@ tracks = ["advanced"]
 hints = [
   "L2-normalize both feature sets first (F.normalize(x, dim=-1)); the cosine similarity matrix is then just image_features @ text_features.T.",
   "The positives sit on the diagonal, so the cross-entropy targets are torch.arange(batch_size) — image i must match text i.",
-  "Symmetric means both directions: (cross_entropy(logits, labels) + cross_entropy(logits.T, labels)) / 2. Scale the logits by the temperature before the softmax, and keep temperature learnable as a log-temperature.",
+  "Symmetric means both directions: (cross_entropy(logits, labels) + cross_entropy(logits.T, labels)) / 2, with logits = cosine similarity * exp(log_temperature). That multiplier is CLIP's logit scale 1/tau (initialized to 1/0.07, clamped at 100); keep it learnable in log space.",
 ]
 
 [notebooks]
@@ -21,7 +21,7 @@ question = "contrastive-loss-clip.ipynb"
 solution = "contrastive-loss-clip_SOLN.ipynb"
 
 [grading]
-tier = "A"        # A=auto-graded B=partial C=not auto-graded (SEEDED, confirm)
+tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["info_nce_loss", "SimpleCLIP"]
 extras = []
 device = "cpu"

@@ -1,6 +1,6 @@
 id = "rotary-positional-embedding"
 legacy_ids = ["v2-11"]
-title = "Implement ROPE Embeddings"
+title = "Implement RoPE Embeddings"
 description = "Build Rotary Position Embeddings that encode relative positions by rotating query and key vectors in complex space."
 difficulty = "medium"
 frequency = "emerging"   # very-likely | common | emerging (derived from company reports)
@@ -11,9 +11,9 @@ tracks = ["advanced", "llm-path"]
 
 # GENERATED from the grader spec — edit python/torchleet/problems/*.py, then run: generate.py hints
 hints = [
-  "rotate_half splits the last dim in two and returns (-x2, x1) concatenated.",
-  "Rotated q = q*cos + rotate_half(q)*sin — the 2D rotation written elementwise.",
-  "cos and sin must broadcast against (batch, heads, seq, dim).",
+  "RoPE turns each pair of features by an angle m * theta_i (position times a per-pair frequency). A rotation keeps norms, and q_m . k_n then depends only on m - n.",
+  "Write the 2D rotation elementwise: x*cos + rotate_half(x)*sin, where rotate_half maps each pair (a, b) to (-b, a). Rotate q and k the same way.",
+  "Half-split convention: rotate_half returns cat(-x2, x1) of the two halves, and cos/sin repeat the angles as cat(freqs, freqs); they broadcast against (batch, heads, seq, head_dim).",
 ]
 
 [notebooks]
@@ -21,7 +21,7 @@ question = "rope-q8-Question.ipynb"
 solution = "rope-q8.ipynb"
 
 [grading]
-tier = "C"        # A=auto-graded B=partial C=not auto-graded (SEEDED, confirm)
+tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["rotate_half", "apply_rotary_pos_emb"]
 extras = []
 device = "cpu"

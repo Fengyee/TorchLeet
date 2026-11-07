@@ -11,9 +11,9 @@ tracks = ["advanced"]
 
 # GENERATED from the grader spec — edit python/torchleet/problems/*.py, then run: generate.py hints
 hints = [
-  "Two terms: KL against the temperature-softened teacher, and cross-entropy against the hard labels.",
-  "alpha blends them: alpha * soft + (1 - alpha) * hard.",
-  "Scale the soft term by temperature**2 so its gradients stay comparable as T changes.",
+  "Two terms: a KL divergence between the temperature-softened teacher and student distributions, and ordinary cross-entropy against the hard labels; alpha blends them as alpha * soft + (1 - alpha) * hard.",
+  "The soft term is KL(teacher_T || student_T): F.kl_div takes the student's log_softmax(s / T) as its input and the teacher's softmax(t / T) as its target, with reduction='batchmean' ('mean' would also divide by the number of classes).",
+  "Multiply the soft term by T**2: its gradients scale like 1/T^2, so without the factor the soft targets fade as T grows. The hard-label cross-entropy uses the raw student logits (T = 1).",
 ]
 
 [notebooks]
@@ -21,9 +21,9 @@ question = "knowledge-distillation.ipynb"
 solution = "knowledge-distillation_SOLN.ipynb"
 
 [grading]
-tier = "A"        # A=auto-graded B=partial C=not auto-graded (SEEDED, confirm)
+tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["distillation_loss"]
-extras = ["matplotlib", "numpy", "sklearn"]
+extras = []
 device = "cpu"
 
 [[companies]]

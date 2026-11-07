@@ -10,7 +10,7 @@ license = "MIT"
 dependencies = ["torch"]
 
 [project.urls]
-Homepage = "https://github.com/Exorust/TorchLeet"
+Homepage = "https://github.com/Fengyee/TorchLeet"
 
 [build-system]
 requires = ["hatchling"]

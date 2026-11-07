@@ -14,7 +14,9 @@ passes every gradient check and fails that one, which is the whole exercise.
 The other classic bug is a checkpoint that silently freezes the layer it wraps:
 the parameters fn closes over must receive gradients (autograd.grad on the inputs
 alone never reaches them), including when the input is plain data that does not
-require grad, as the first layer of any real network is.
+require grad, as the first layer of any real network is. And fn may use dropout:
+the recomputation must replay the forward's RNG state, or backward differentiates
+through a different mask than the one that produced the output.
 """
 import gc
 import weakref
@@ -38,6 +40,9 @@ HINTS = [
     "Autograd only calls backward if some tensor argument requires grad. When none "
     "does (plain input data), have checkpoint() pass an extra dummy tensor with "
     "requires_grad=True, or the wrapped layer's weights never train.",
+    "Dropout inside fn: save torch.get_rng_state() in forward, and in backward restore "
+    "it inside torch.random.fork_rng() before recomputing, so the replay draws the same "
+    "mask without disturbing the RNG stream of the rest of training.",
 ]
 
 BATCH, DIM, HIDDEN = 6, 8, 16
@@ -218,6 +223,31 @@ def check_plain_input_still_trains_parameters(ns):
             f"differs from the uncheckpointed run (max diff {diff:.2e})")
 
 
+def check_dropout_replays_the_same_mask(ns):
+    """Random ops inside fn must draw the same numbers when backward recomputes it."""
+    torch.manual_seed(15)
+    w0 = torch.randn(DIM, HIDDEN)
+    x = torch.randn(BATCH, DIM)
+
+    def fn(t, w):
+        return F.dropout(torch.tanh(t @ w), p=0.5, training=True)
+
+    w_plain = w0.clone().requires_grad_(True)
+    w_ckpt = w0.clone().requires_grad_(True)
+    torch.manual_seed(123)
+    fn(x, w_plain).sum().backward()
+    torch.manual_seed(123)
+    ns.checkpoint(fn, x, w_ckpt).sum().backward()
+    assert w_ckpt.grad is not None, "no gradient reached the weight through the checkpoint"
+    diff = (w_plain.grad - w_ckpt.grad).abs().max().item()
+    assert torch.allclose(w_plain.grad, w_ckpt.grad, atol=1e-6), (
+        f"with dropout inside fn the checkpointed gradient differs from the plain run "
+        f"(max diff {diff:.2e}): the recomputation in backward drew a different dropout "
+        f"mask. Save torch.get_rng_state() in forward and restore it (inside "
+        f"torch.random.fork_rng()) before re-running fn, as torch.utils.checkpoint "
+        f"does with preserve_rng_state=True.")
+
+
 CHECKS = [
     check_forward_output_matches,
     check_output_is_differentiable,
@@ -226,4 +256,5 @@ CHECKS = [
     check_intermediates_are_not_kept,
     check_module_parameter_gradients,
     check_plain_input_still_trains_parameters,
+    check_dropout_replays_the_same_mask,
 ]

@@ -1,0 +1,25 @@
+id = "vae"
+title = "Variational Autoencoder (VAE) and the ELBO"
+description = "Build a VAE with the reparameterization trick and the negative-ELBO loss (Bernoulli BCE-with-logits + analytic KL, beta-weighted) and train it on binary bar images."
+difficulty = "medium"
+number = 17
+set = "v4"
+category = "generative"
+tracks = ["advanced"]
+
+# GENERATED from the grader spec — edit python/torchleet/problems/*.py, then run: generate.py hints
+hints = [
+  "The encoder predicts logvar = log(sigma^2), not sigma, so the standard deviation is exp(0.5 * logvar). Sampling z = mu + sigma * eps with eps drawn separately keeps z a differentiable function of mu and logvar.",
+  "Reconstruction: F.binary_cross_entropy_with_logits(logits, x, reduction='sum') divided by the batch size, so it is summed over pixels and averaged over samples. Use the same convention for the KL: sum over latent dims, mean over the batch.",
+  "KL(N(mu, sigma^2) || N(0, 1)) per latent dim is -0.5 * (1 + logvar - mu^2 - exp(logvar)); sum it over latent dims, average over the batch, then loss = recon + beta * kl. sample(n) decodes z = torch.randn(n, latent_dim) and applies a sigmoid.",
+]
+
+[notebooks]
+question = "vae.ipynb"
+solution = "vae_SOLN.ipynb"
+
+[grading]
+tier = "A"        # A = auto-graded by check(), C = not graded
+entries = ["VAE", "vae_loss"]
+extras = []
+device = "cpu"

@@ -10,9 +10,9 @@ tracks = ["basics"]
 
 # GENERATED from the grader spec — edit python/torchleet/problems/*.py, then run: generate.py hints
 hints = [
-  "The input is (batch, seq_len, input_size) — nn.RNN needs batch_first=True to read it that way.",
-  "Feed only the final hidden state into the fully connected layer; that is the summary of the whole sequence.",
-  "The output should be (batch, 1): one predicted next value per sequence, not one per timestep.",
+  "Keep a hidden state h of shape (batch, hidden_dim), start it at zeros on every forward call, and update it once per timestep in a Python loop over seq_len.",
+  "The update is h = tanh(x_t W_ih + h W_hh + b) with the same W_ih, W_hh and b at every step (store them as nn.Parameter); x_t is x[:, t] because the input is (batch, seq_len, input_dim).",
+  "After the loop, the final h summarises the whole sequence: map it with nn.Linear(hidden_dim, 1) to get one prediction per sequence, shape (batch, 1).",
 ]
 
 [notebooks]
@@ -20,7 +20,7 @@ question = "RNN.ipynb"
 solution = "RNN_SOLN.ipynb"
 
 [grading]
-tier = "C"        # A=auto-graded B=partial C=not auto-graded (SEEDED, confirm)
+tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["RNNModel"]
 extras = []
 device = "cpu"

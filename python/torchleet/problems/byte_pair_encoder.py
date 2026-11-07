@@ -20,6 +20,13 @@ HINTS = [
 # words, and would sail through every check below.
 CORPUS = ["low", "low", "low", "low", "lowest", "newer", "wider", "newest"]
 
+# Built so that a merge can go wrong in the two classic ways: "abab" holds the same
+# pair twice (a merge must replace every occurrence, not the first), and "st"/"es"
+# share an 's', so after one of them is merged, "best" has adjacent symbols like
+# ('e', 'st') that a string-replace on "e s t" would wrongly glue together.
+REPLAY_CORPUS = ["st"] * 5 + ["es"] * 4 + ["best", "abab", "abab", "nest"]
+REPLAY_MERGES = 8
+
 
 def _items(vocab, who):
     assert hasattr(vocab, "items"), \
@@ -180,6 +187,65 @@ def check_bpe_is_deterministic(ns):
         "the same corpus gave two different final vocabularies"
 
 
+def _pair_counts(vocab):
+    counts = {}
+    for word, freq in vocab.items():
+        for i in range(len(word) - 1):
+            counts[(word[i], word[i + 1])] = counts.get((word[i], word[i + 1]), 0) + freq
+    return counts
+
+
+def _merge(pair, vocab):
+    """Reference merge on symbol tuples: left to right, every occurrence."""
+    a, b = pair
+    out = {}
+    for word, freq in vocab.items():
+        merged, i = [], 0
+        while i < len(word):
+            if i + 1 < len(word) and word[i] == a and word[i + 1] == b:
+                merged.append(a + b)
+                i += 2
+            else:
+                merged.append(word[i])
+                i += 1
+        out[tuple(merged)] = out.get(tuple(merged), 0) + freq
+    return out
+
+
+def check_every_merge_is_greedy_and_exact(ns):
+    """Replay the solver's merge list on its own starting vocabulary. Every step
+    must merge a most frequent pair *of the vocabulary at that step*, and the final
+    vocabulary must be exactly what applying those merges symbol-by-symbol gives.
+    Catches merging only the first occurrence in a word, and string-replace merges
+    that glue together symbols which merely spell the pair (e.g. 'e','st' when
+    merging ('e', 's'))."""
+    vocab = {tuple(w): f for w, f in ns.get_vocab(REPLAY_CORPUS).items()}
+    final, merges = _split(ns.byte_pair_encoding(REPLAY_CORPUS, REPLAY_MERGES),
+                           REPLAY_MERGES)
+    for step, pair in enumerate(merges, 1):
+        pair = tuple(pair)
+        counts = _pair_counts(vocab)
+        top = max(counts.values())
+        assert counts.get(pair, 0) == top, (
+            f"merge {step} was {pair}, which occurs {counts.get(pair, 0)} times at that "
+            f"point, but the most frequent pair then occurs {top} times — recount the "
+            "pairs on the current (already merged) vocabulary before every merge")
+        want = _merge(pair, vocab)
+        got = {tuple(w): f for w, f in ns.merge_vocab(pair, dict(vocab)).items()}
+        assert got == want, (
+            f"merge_vocab({pair}) on\n  {sorted(vocab.items())}\nshould give\n  "
+            f"{sorted(want.items())}\ngot\n  {sorted(got.items())}\n— replace every "
+            "adjacent occurrence of the two *symbols* (left to right), and never join "
+            "symbols that only spell the pair as text (e.g. 'e','st' for ('e', 's'))")
+        vocab = want
+    got = {tuple(w): f for w, f in final.items()}
+    assert got == vocab, (
+        f"after the merges {list(merges)} the vocabulary should be\n  "
+        f"{sorted(vocab.items())}\ngot\n  {sorted(got.items())}\n— a merge must "
+        "replace every adjacent occurrence of the two *symbols*, and must not join "
+        "symbols that only spell the pair as text")
+
+
 CHECKS = [check_get_vocab_splits_words_into_symbols,
           check_get_stats_counts_adjacent_pairs,
           check_merge_vocab_applies_the_merge,
@@ -187,4 +253,5 @@ CHECKS = [check_get_vocab_splits_words_into_symbols,
           check_merge_picks_a_most_frequent_pair,
           check_merges_reduce_symbols_monotonically,
           check_bpe_preserves_the_corpus,
-          check_bpe_is_deterministic]
+          check_bpe_is_deterministic,
+          check_every_merge_is_greedy_and_exact]

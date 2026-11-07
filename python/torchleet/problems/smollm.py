@@ -8,6 +8,9 @@ import math
 from types import SimpleNamespace
 
 import torch
+import torch.nn.functional as F
+
+from torchleet.runner import Skip
 
 ENTRIES = ["rotate_half", "apply_rotary_pos_emb", "repeat_kv",
            "RotaryEmbedder", "RopeAttention"]
@@ -126,6 +129,68 @@ def check_rotary_embedder_starts_at_angle_zero(ns):
         f"sin at position 0 should be all 0 (angle 0), got {s0.tolist()[:4]}..."
 
 
+def _reference_tables(seq, dim, base):
+    inv_freq = 1.0 / (base ** (torch.arange(0, dim, 2).float() / dim))
+    ang = torch.outer(torch.arange(seq).float(), inv_freq)
+    emb = torch.cat((ang, ang), dim=-1)      # HF Llama layout: pair i with i + dim/2
+    return emb.cos(), emb.sin()
+
+
+def check_rotary_embedder_matches_llama_frequencies(ns):
+    """theta_i = base^(-2i/dim) with the angles laid out as cat(freqs, freqs) — the
+    layout the pretrained Llama/SmolLM weights expect. A wrong exponent (i/dim
+    instead of 2i/dim) or a hard-coded base passes the unit-circle checks above."""
+    for base in (10000.0, 500.0):
+        emb = ns.RotaryEmbedder(dim=HEAD_DIM, base=base)
+        cos, sin = emb(torch.randn(B, HEADS, S, HEAD_DIM))
+        want_cos, want_sin = _reference_tables(S, HEAD_DIM, base)
+        got_cos = cos.reshape(-1, S, HEAD_DIM)[0].float()
+        got_sin = sin.reshape(-1, S, HEAD_DIM)[0].float()
+        assert torch.allclose(got_cos, want_cos, atol=1e-5) and \
+            torch.allclose(got_sin, want_sin, atol=1e-5), (
+                f"with base={base}, cos/sin should be cos/sin of position * "
+                "base**(-2i/dim), repeated as cat(freqs, freqs) along the head dim "
+                f"(max cos error {float((got_cos - want_cos).abs().max()):.2e})")
+
+
+def check_attention_matches_reference(ns):
+    """Same weights in, same output out, against RoPE + GQA computed from scratch
+    with F.scaled_dot_product_attention. Uses the projection names from the
+    architecture (W_query, W_key, W_value, W_output) to read the weights."""
+    attn = _attn(ns, seed=7)
+    names = ("W_query", "W_key", "W_value", "W_output")
+    if not all(hasattr(getattr(attn, n, None), "weight") for n in names):
+        raise Skip("name the projections W_query, W_key, W_value, W_output (as in the "
+                   "architecture) to compare against the reference")
+    Wq, Wk, Wv, Wo = (getattr(attn, n).weight.detach() for n in names)
+    torch.manual_seed(8)
+    x = torch.randn(B, S, HIDDEN)
+
+    split = lambda t, h: t.view(B, S, h, HEAD_DIM).transpose(1, 2)
+    q, k, v = split(x @ Wq.T, HEADS), split(x @ Wk.T, KV_HEADS), split(x @ Wv.T, KV_HEADS)
+    cos, sin = _reference_tables(S, HEAD_DIM, 10000.0)
+    rot = lambda t: t * cos + torch.cat((-t[..., HEAD_DIM // 2:], t[..., :HEAD_DIM // 2]), -1) * sin
+
+    # Causal, then causal + right padding (the last 2 keys of sequence 1 are padding):
+    # the mask is an input, so a block that ignores it and applies its own causal
+    # mask would attend to padding.
+    real = torch.ones(B, S, dtype=torch.bool)
+    real[1, -2:] = False
+    padded = _causal().masked_fill(~real[:, None, None, :], float("-inf"))
+    for what, mask in (("a causal mask", _causal()), ("a causal + padding mask", padded)):
+        o = F.scaled_dot_product_attention(rot(q), rot(k), v, attn_mask=mask, enable_gqa=True)
+        want = o.transpose(1, 2).reshape(B, S, HIDDEN) @ Wo.T
+        with torch.no_grad():
+            got = attn(x, mask)
+        got = got[0] if isinstance(got, tuple) else got
+        assert torch.allclose(got, want, atol=1e-5), (
+            f"with {what}, RopeAttention disagrees with the reference (max diff "
+            f"{(got - want).abs().max():.2e}) — check the 1/sqrt(head_dim) scale, that "
+            "RoPE uses config.rope_theta and rotates q and k only, that query head i "
+            "reads KV head i // n_rep, and that the attention_mask you are given is "
+            "added to the scores")
+
+
 def check_attention_output_shape(ns):
     attn = _attn(ns)
     x = torch.randn(B, S, HIDDEN)
@@ -213,6 +278,8 @@ CHECKS = [check_rotate_half_negates_when_applied_twice,
           check_repeat_kv_identity_when_n_rep_is_one,
           check_rotary_embedder_lies_on_unit_circle,
           check_rotary_embedder_starts_at_angle_zero,
+          check_rotary_embedder_matches_llama_frequencies,
+          check_attention_matches_reference,
           check_attention_output_shape,
           check_attention_is_position_aware,
           check_attention_respects_the_causal_mask,

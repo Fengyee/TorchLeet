@@ -11,9 +11,9 @@ tracks = ["llm-path"]
 
 # GENERATED from the grader spec — edit python/torchleet/problems/*.py, then run: generate.py hints
 hints = [
-  "Sort probabilities descending, then take the smallest prefix whose cumulative mass >= p.",
-  "Always keep at least one token, or a peaked distribution can select nothing.",
-  "Renormalize the surviving probabilities before sampling from them.",
+  "Sort probabilities descending, then take the smallest prefix whose cumulative mass >= p — the token that crosses p is IN the nucleus.",
+  "Always keep at least the top token, renormalize the survivors, and map the sampled position back through the sort indices.",
+  "Drop a token when the mass ranked ABOVE it already reaches p: mask (cumsum - prob) >= p, i.e. the cumsum shifted right by one.",
 ]
 
 [notebooks]
@@ -21,7 +21,7 @@ question = "top-p-sampling.ipynb"
 solution = "top-p-sampling_SOLN.ipynb"
 
 [grading]
-tier = "A"        # A=auto-graded B=partial C=not auto-graded (SEEDED, confirm)
+tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["top_p_sample"]
 extras = []
 device = "cpu"

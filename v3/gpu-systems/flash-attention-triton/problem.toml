@@ -14,6 +14,7 @@ hints = [
   "Outer loop over Q blocks, inner loop over K,V blocks; the only matrix you ever materialize is the (block_q, block_kv) tile of scores.",
   "Carry running_max, running_sum and running_output per Q block. When a tile raises the max, rescale BOTH the running sum and the running output by exp(old_max - new_max) before adding the tile's contribution.",
   "Normalize once, after the inner loop: output = running_output / running_sum. The last block may be short, so slice with min(start + block, N).",
+  "Causal: a K,V tile that starts after the Q tile's last row is pure future — skip it. Only tiles straddling the diagonal need a mask (-inf where key > query); the first tile always contains key 0, so no row is ever fully masked.",
 ]
 
 [notebooks]
@@ -21,10 +22,10 @@ question = "flash-attention-triton.ipynb"
 solution = "flash-attention-triton_SOLN.ipynb"
 
 [grading]
-tier = "A"        # A=auto-graded B=partial C=not auto-graded (SEEDED, confirm)
+tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["flash_attention_pytorch"]
-extras = ["triton"]
-device = "cuda"
+extras = []
+device = "cpu"    # kernel checks run on CUDA or with TRITON_INTERPRET=1
 
 [[companies]]
 name = "NVIDIA"

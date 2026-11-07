@@ -223,8 +223,15 @@ def check_denoiser_gradients_flow(ns):
 # p_sample
 # --------------------------------------------------------------------------
 def check_p_sample_final_step_is_deterministic(ns):
-    """At t = 0 there is no more noise to add — the step returns the mean."""
-    betas, alphas, abar = _schedule(ns)
+    """At t = 0 there is no more noise to add — the step returns the mean.
+
+    The schedule starts at beta = 0.36 on purpose: with beta_0 = 1e-4, 1/sqrt(alpha_0)
+    is 1 + 5e-5, smaller than the float32 cancellation in 1 - abar_0 that an
+    x0-parameterised posterior mean (beta_0 / (1 - abar_0) * x0_pred + ...) incurs,
+    so that correct form would fail while a missing 1/sqrt(alpha_0) would barely show."""
+    betas = torch.linspace(0.36, 0.5, T)
+    alphas = 1.0 - betas
+    abar = torch.cumprod(alphas, dim=0)
     m = _ZeroDenoiser()
     x = torch.randn(64, DIM)
     a = ns.p_sample(m, x, 0, betas, alphas, abar)

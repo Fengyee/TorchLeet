@@ -9,10 +9,13 @@ a stored implementation:
   * scaling either feature set must not move the loss (that is what L2
     normalization buys you);
   * swapping the two arguments must not move it either (that is the "symmetric"
-    in symmetric cross-entropy).
+    in symmetric cross-entropy);
+  * on random features the value must equal symmetric cross-entropy over the
+    scaled cosine-similarity matrix, recomputed here from torch built-ins.
 
-Temperature is used at 1.0 wherever an exact value is asserted, so multiplying or
-dividing by it — the two conventions in the wild — cannot decide the outcome.
+The scalar argument is a logit scale (CLIP's exp(logit_scale) = 1/tau). Where a
+value other than 1.0 is asserted, multiplying the similarities by it or dividing
+by it — the two conventions in the wild — are both accepted.
 """
 import math
 
@@ -29,8 +32,9 @@ HINTS = [
     "The positives sit on the diagonal, so the cross-entropy targets are "
     "torch.arange(batch_size) — image i must match text i.",
     "Symmetric means both directions: (cross_entropy(logits, labels) + "
-    "cross_entropy(logits.T, labels)) / 2. Scale the logits by the temperature "
-    "before the softmax, and keep temperature learnable as a log-temperature.",
+    "cross_entropy(logits.T, labels)) / 2, with logits = cosine similarity * "
+    "exp(log_temperature). That multiplier is CLIP's logit scale 1/tau (initialized "
+    "to 1/0.07, clamped at 100); keep it learnable in log space.",
 ]
 
 B_SIZE, IMG_DIM, TXT_DIM, EMB_DIM = 16, 12, 10, 8
@@ -81,14 +85,22 @@ def check_closed_form_on_orthonormal_features(ns):
 
 
 def check_invariant_to_feature_scale(ns):
-    """L2 normalization means the magnitude of the embeddings cannot matter."""
+    """L2 normalization means the magnitude of each embedding cannot matter.
+
+    Every row gets its own scale: a single global factor would also be absorbed
+    by normalizing along the wrong axis (over the batch instead of the features).
+    """
     img, txt = _paired_data(1)
     img, txt = img[:, :EMB_DIM], txt[:, :EMB_DIM]
+    g = torch.Generator().manual_seed(1)
+    row_img = torch.rand(B_SIZE, 1, generator=g) * 20 + 0.05
+    row_txt = torch.rand(B_SIZE, 1, generator=g) * 20 + 0.05
     base = _loss_value(ns, img, txt, 1.0).item()
-    scaled = _loss_value(ns, img * 17.0, txt * 0.03, 1.0).item()
+    scaled = _loss_value(ns, img * row_img, txt * row_txt, 1.0).item()
     assert abs(base - scaled) < 1e-4, (
-        f"rescaling the features changed the loss ({base:.4f} -> {scaled:.4f}); "
-        f"L2-normalize both feature sets before the similarity matrix")
+        f"rescaling each feature vector changed the loss ({base:.4f} -> {scaled:.4f}); "
+        f"L2-normalize every embedding along the feature dimension (dim=-1) before "
+        f"the similarity matrix")
 
 
 def check_symmetric_in_its_two_inputs(ns):
@@ -119,6 +131,13 @@ def check_labels_follow_the_diagonal(ns):
         f"({base:.4f} -> {shuffled:.4f}) — is the similarity matrix being used at all?")
 
 
+def _oracle(img, txt, scale):
+    """Symmetric InfoNCE from torch built-ins, logits = cos-sim * scale."""
+    logits = F.normalize(img, dim=-1) @ F.normalize(txt, dim=-1).T * scale
+    labels = torch.arange(logits.size(0))
+    return ((F.cross_entropy(logits, labels) + F.cross_entropy(logits.T, labels)) / 2).item()
+
+
 def check_temperature_is_used(ns):
     img, txt = _orthonormal_pairs(8, EMB_DIM, seed=5)
     cold = _loss_value(ns, img, txt, 1.0).item()
@@ -127,6 +146,21 @@ def check_temperature_is_used(ns):
         "changing the temperature did not change the loss — it is being ignored"
     assert min(cold, hot) >= 0.0, \
         f"cross-entropy cannot be negative, got {min(cold, hot):.4f}"
+
+
+def check_matches_symmetric_cross_entropy(ns):
+    """Random (non-orthogonal) features, several scales, against torch built-ins."""
+    img, txt = _paired_data(9)
+    img, txt = img[:, :EMB_DIM], txt[:, :EMB_DIM]
+    for temp in (1.0, 2.5, 14.0):
+        got = _loss_value(ns, img, txt, temp).item()
+        times, divided = _oracle(img, txt, temp), _oracle(img, txt, 1.0 / temp)
+        assert min(abs(got - times), abs(got - divided)) < 1e-4, (
+            f"temperature={temp}: got {got:.4f}, but the symmetric cross-entropy over "
+            f"the cosine-similarity matrix is {times:.4f} when the similarities are "
+            f"multiplied by it (CLIP's logit scale) or {divided:.4f} when divided by "
+            f"it. Normalize each embedding (dim=-1), scale the logits exactly once, "
+            f"and average the two directions.")
 
 
 def check_loss_backpropagates(ns):
@@ -214,6 +248,7 @@ CHECKS = [
     check_symmetric_in_its_two_inputs,
     check_labels_follow_the_diagonal,
     check_temperature_is_used,
+    check_matches_symmetric_cross_entropy,
     check_loss_backpropagates,
     check_model_shapes_and_temperature,
     check_gradients_reach_every_parameter,

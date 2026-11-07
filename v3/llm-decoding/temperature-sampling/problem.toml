@@ -12,7 +12,7 @@ tracks = ["llm-path"]
 # GENERATED from the grader spec — edit python/torchleet/problems/*.py, then run: generate.py hints
 hints = [
   "Divide the logits by the temperature before the softmax.",
-  "Low temperature sharpens the distribution toward the argmax; high flattens it.",
+  "Low temperature sharpens the distribution toward the argmax; high flattens it. temperature == 0 is the limit of that: return the argmax instead of dividing by zero.",
   "Sample with torch.multinomial on the resulting probabilities.",
 ]
 
@@ -21,7 +21,7 @@ question = "temperature-sampling.ipynb"
 solution = "temperature-sampling_SOLN.ipynb"
 
 [grading]
-tier = "A"        # A=auto-graded B=partial C=not auto-graded (SEEDED, confirm)
+tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["temperature_sample"]
 extras = []
 device = "cpu"

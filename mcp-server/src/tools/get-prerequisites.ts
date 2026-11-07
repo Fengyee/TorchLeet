@@ -1,97 +1,98 @@
 import { z } from "zod";
-import { getQuestionById, questions, type Question } from "../data/questions.js";
+import { getQuestionById, questions, byDifficulty, DIFFICULTY_ORDER, type Question } from "../data/questions.js";
+import { notFound } from "./get-question.js";
 
 export const getPrerequisitesSchema = {
-  id: z.string().describe("Question ID to find prerequisites for"),
+  id: z.string().describe("Problem id (e.g. 'dpo') or legacy id (e.g. 'v3-14') to find prerequisites for"),
 };
 
+// Curated "do these first" edges, by problem id (slug). An empty list marks a
+// good starting point. Problems not listed fall back to easier problems from
+// the same directory. Ids that stop resolving are dropped (and reported by
+// unresolvedPrerequisites) rather than shown as broken links.
 const PREREQ_GRAPH: Record<string, string[]> = {
   // Attention chain
-  "v2-6": [],
-  "v2-7": ["v2-6"],
-  "v2-8": ["v2-7"],
-  "v3-13": ["v2-7"],
-  "v3-12": ["v2-7"],
+  "implement-attention-from-scratch": [],
+  "multi-head-attention": ["implement-attention-from-scratch"],
+  "grouped-query-attention": ["multi-head-attention"],
+  "sliding-window-attention": ["multi-head-attention"],
+  "kv-cache": ["multi-head-attention"],
 
   // Positional embeddings
-  "v2-10": [],
-  "v2-11": ["v2-10"],
+  "sinusoidal-positional-embedding": [],
+  "rotary-positional-embedding": ["sinusoidal-positional-embedding"],
+  "2d-positional-embeddings": ["sinusoidal-positional-embedding"],
 
   // SmolLM capstone
-  "v2-12": ["v2-3", "v2-11", "v2-8", "v3-12"],
+  smollm: ["byte-pair-encoder", "rms-norm", "rotary-positional-embedding", "grouped-query-attention", "kv-cache"],
 
   // Alignment chain
-  "v3-11": [],
-  "v3-14": ["v3-11"],
-  "v3-15": ["v3-14"],
-  "v3-27": ["v3-15"],
+  lora: [],
+  dpo: ["lora"],
+  "ppo-rlhf": ["dpo"],
+  grpo: ["ppo-rlhf"],
 
   // Decoding chain
-  "v3-10": [],
-  "v3-8": ["v3-10"],
-  "v3-7": ["v3-10"],
-  "v3-9": ["v3-10"],
+  "temperature-sampling": [],
+  "top-k-sampling": ["temperature-sampling"],
+  "top-p-sampling": ["temperature-sampling"],
+  "beam-search": ["temperature-sampling"],
 
   // Inference chain
-  "v3-18": ["v3-12"],
-  "v3-19": ["v3-12"],
-  "v3-28": ["v3-18", "v3-19"],
+  "speculative-decoding": ["kv-cache"],
+  "continuous-batching": ["kv-cache"],
+  "inference-engine": ["speculative-decoding", "continuous-batching"],
 
   // GPU systems chain
-  "v3-1": [],
-  "v3-24": ["v3-1"],
-  "v3-25": ["v2-6", "v3-24"],
-  "v3-26": [],
-  "v3-30": ["v2-7", "v3-26"],
+  softmax: [],
+  "triton-fused-softmax": ["softmax"],
+  "flash-attention": ["implement-attention-from-scratch", "softmax"],
+  "flash-attention-triton": ["flash-attention", "triton-fused-softmax"],
+  fsdp: [],
+  "ring-attention": ["multi-head-attention", "flash-attention", "fsdp"],
 
   // Modern architectures
-  "v3-5": [],
-  "v3-6": ["v2-10"],
-  "v3-17": [],
-  "v3-20": [],
-  "v3-21": ["v3-20"],
-  "v3-22": [],
-  "v3-23": ["v3-6"],
-  "v3-29": [],
+  "contrastive-loss-clip": [],
+  "mixture-of-experts": [],
+  mamba: [],
+  ddpm: [],
+  "ddim-cfg": ["ddpm"],
+  "vit-mae": ["2d-positional-embeddings"],
+  "knowledge-distillation": [],
+  "gradient-checkpointing": [],
 
-  // Diffusion
-  "v3-16": [],
+  // v4
+  micrograd: [],
+  "mlp-backprop": [],
+  "gradient-boosting": ["decision-tree"],
+  "detection-map": ["iou-nms"],
+  "siglip-loss": ["contrastive-loss-clip"],
+  "vlm-connector": ["multi-head-attention"],
+  "dit-block": ["multi-head-attention", "ddpm"],
 };
 
-const DIFFICULTY_ORDER: Record<string, number> = {
-  basic: 0,
-  easy: 1,
-  medium: 2,
-  hard: 3,
-  expert: 4,
-};
+/** Graph ids that no longer resolve to a problem (for tests / maintenance). */
+export function unresolvedPrerequisites(): string[] {
+  const ids = Object.entries(PREREQ_GRAPH).flatMap(([k, v]) => [k, ...v]);
+  return Array.from(new Set(ids.filter((id) => !getQuestionById(id))));
+}
 
 export async function getPrerequisites(params: { id: string }) {
   const q = getQuestionById(params.id);
-  if (!q) {
-    return {
-      content: [{ type: "text" as const, text: `Question "${params.id}" not found.` }],
-    };
-  }
+  if (!q) return notFound(params.id);
 
-  const prereqIds = PREREQ_GRAPH[params.id];
+  const prereqIds = Object.prototype.hasOwnProperty.call(PREREQ_GRAPH, q.id) ? PREREQ_GRAPH[q.id] : undefined;
+  const prereqs = (prereqIds ?? [])
+    .map((id) => getQuestionById(id))
+    .filter((p): p is Question => p !== undefined);
 
-  if (prereqIds && prereqIds.length > 0) {
-    const prereqs = prereqIds
-      .map((id) => getQuestionById(id))
-      .filter((p): p is Question => p !== undefined);
-
-    const parts = [
-      `## Prerequisites for: ${q.title} (${q.difficulty})\n`,
-      "Complete these first:\n",
-    ];
-    for (const p of prereqs) {
-      parts.push(`1. **${p.id}** ${p.title} (${p.difficulty}) — ${p.description}`);
-    }
+  if (prereqs.length > 0) {
+    const parts = [`## Prerequisites for: ${q.title} (${q.difficulty})\n`, "Complete these first:\n"];
+    prereqs.forEach((p, i) => parts.push(`${i + 1}. **${p.id}** ${p.title} (${p.difficulty}) — ${p.description}`));
     return { content: [{ type: "text" as const, text: parts.join("\n") }] };
   }
 
-  if (prereqIds && prereqIds.length === 0) {
+  if (prereqIds) {
     return {
       content: [
         {
@@ -102,11 +103,11 @@ export async function getPrerequisites(params: { id: string }) {
     };
   }
 
-  // Not in the graph: suggest easier questions from the same category/set
+  // Not in the graph: suggest easier problems from the same directory or category.
   const sameArea = questions.filter(
     (other) =>
       other.id !== q.id &&
-      ((q.category && other.category === q.category) || other.set === q.set) &&
+      (other.section === q.section || (q.category !== "" && other.category === q.category)) &&
       (DIFFICULTY_ORDER[other.difficulty] ?? 5) < (DIFFICULTY_ORDER[q.difficulty] ?? 5),
   );
 
@@ -121,17 +122,12 @@ export async function getPrerequisites(params: { id: string }) {
     };
   }
 
-  const sorted = sameArea
-    .sort((a, b) => (DIFFICULTY_ORDER[a.difficulty] ?? 5) - (DIFFICULTY_ORDER[b.difficulty] ?? 5))
-    .slice(0, 5);
-
   const parts = [
     `## Suggested preparation for: ${q.title} (${q.difficulty})\n`,
-    "These easier questions cover related concepts:\n",
+    "These easier problems cover related concepts:\n",
   ];
-  for (const p of sorted) {
+  for (const p of [...sameArea].sort(byDifficulty).slice(0, 5)) {
     parts.push(`- **${p.id}** ${p.title} (${p.difficulty})`);
   }
-
   return { content: [{ type: "text" as const, text: parts.join("\n") }] };
 }

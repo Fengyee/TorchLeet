@@ -9,6 +9,15 @@ log-probs returned at generation time and the ones ppo_step recomputes shows up
 immediately. GAE is probed at its limiting cases (gamma=lam=0 is the TD error,
 gamma=lam=1 is the Monte-Carlo return minus the baseline), which are identities,
 not a second implementation.
+
+The KL term is checked by its gradient, not just its value: on a large rollout the
+penalty's gradient must point along the gradient of the exact per-state
+KL(pi || pi_ref). That rejects the classic mean(log pi - log pi_ref) loss term,
+whose expected gradient on-policy is E[grad log pi] = 0 — it reports a sensible
+number and regularises nothing. (k3's expected gradient is exactly that of the
+reverse KL(pi_ref || pi); near the reference the two agree, cosine ~0.9 here, so a
+threshold of 0.5 accepts k3, k2 and the exact KL alike.) The reported value must
+also estimate KL(pi || pi_ref), which rejects k3 with the ratio inverted.
 """
 import math
 
@@ -28,6 +37,9 @@ HINTS = [
     "ppo_step recomputes log-probs for `actions` under the current policy, forms "
     "ratio = exp(new - old), and takes min(ratio*A, clamp(ratio, 1-eps, 1+eps)*A). "
     "total_loss = -policy_objective + 0.5*value_loss + kl_beta*kl_div.",
+    "For kl_div use the k3 estimator exp(ref - new) - (ref - new) - 1, averaged over "
+    "tokens. mean(new - ref) has the right value but zero expected gradient, so as a "
+    "loss term it never pulls the policy back toward the reference.",
 ]
 
 VOCAB, SEQ, BATCH = 12, 5, 6
@@ -321,6 +333,86 @@ def check_clipping_caps_the_objective(ns):
         f"{at_3:.5f} — the clip is missing or on the wrong branch")
 
 
+def check_min_keeps_the_pessimistic_branch(ns):
+    """min(r*A, clip(r)*A) is a lower bound: it clips only where clipping LOWERS
+    the objective. With A < 0 a large ratio, or with A > 0 a small one, the
+    unclipped term is the smaller one and must be used."""
+    p = _TokenPolicy(seed=9)
+    seqs, old, ids = _rollout(ns, p)
+    returns = torch.zeros(BATCH, SEQ)
+    eps = 0.2
+    for ratio, a in ((3.0, -1.0), (0.5, 1.0), (0.5, -1.0), (3.0, 1.0)):
+        adv = torch.full((BATCH, SEQ), a)
+        got = float(_step(ns, p, _ZeroValue(), p, old - math.log(ratio), ids, seqs,
+                          adv, returns, clip=eps, kl_beta=0.0)["total_loss"])
+        clipped = min(max(ratio, 1 - eps), 1 + eps)
+        expected = -min(ratio * a, clipped * a)
+        assert abs(got - expected) < 1e-4, (
+            f"ratio={ratio}, advantage={a}: the surrogate is min(r*A, clip(r)*A) = "
+            f"{-expected:.3f}, so total_loss should be {expected:.3f}; got {got:.4f}. "
+            f"Clipping both branches (or using max) drops PPO's pessimistic bound.")
+
+
+def check_kl_penalty_pulls_the_policy_toward_the_reference(ns):
+    """The KL term's gradient must agree with the gradient of the exact KL."""
+    p = _TokenPolicy(seed=21, scale=0.5)
+    ref = _TokenPolicy(seed=22, scale=0.5)
+    torch.manual_seed(0)
+    with torch.no_grad():
+        seqs, old, ids = _gen(ns, p, batch=1024)
+    zeros = torch.zeros(seqs.shape)
+    # Zero advantages and returns: the only term that can move the policy is the KL.
+    out = _step(ns, p, _ZeroValue(), ref, old, ids, seqs, zeros, zeros, kl_beta=1.0)
+    g_pen, = torch.autograd.grad(out["total_loss"], p.emb.weight, allow_unused=True)
+    assert g_pen is not None and bool((g_pen != 0).any()), (
+        "the KL penalty sends no gradient to the policy — compute it from the "
+        "current policy's log-probs, not detached ones")
+    states = ids[:, :SEQ]                 # s_t: BOS + the tokens before action t
+    logp = torch.log_softmax(p(states), -1)
+    with torch.no_grad():
+        logq = torch.log_softmax(ref(states), -1)
+    exact = (logp.exp() * (logp - logq)).sum(-1).mean()
+    g_true, = torch.autograd.grad(exact, p.emb.weight)
+    cos = float(torch.nn.functional.cosine_similarity(
+        g_pen.flatten(), g_true.flatten(), dim=0))
+    assert cos > 0.5, (
+        f"the KL penalty's gradient is unrelated to the gradient of the true KL "
+        f"(cosine similarity {cos:.2f}). mean(log_pi - log_ref) over sampled actions "
+        f"estimates the KL's value, but as a loss its expected gradient is "
+        f"E[grad log_pi] = 0, so it does not hold the policy near the reference. "
+        f"Use k3 = exp(ref - new) - (ref - new) - 1 (as GRPO does). (Putting the "
+        f"per-token KL into the reward before GAE is the other standard placement, "
+        f"but this ppo_step takes kl_beta and must add the penalty to the loss.)")
+
+
+def check_kl_div_estimates_kl_from_policy_to_reference(ns):
+    """The reported kl_div must be (an estimate of) KL(pi || pi_ref) itself, not
+    some other divergence: k1, k2, k3 and the exact per-state KL all land within a
+    few percent of it on a large on-policy rollout. k3 with the log-ratio upside
+    down, exp(new - ref) - (new - ref) - 1, estimates chi^2 - KL instead (~50% high
+    here) while still passing the gradient check."""
+    p = _TokenPolicy(seed=21, scale=0.5)
+    ref = _TokenPolicy(seed=22, scale=0.5)
+    torch.manual_seed(0)
+    with torch.no_grad():
+        seqs, old, ids = _gen(ns, p, batch=1024)
+    zeros = torch.zeros(seqs.shape)
+    out = _step(ns, p, _ZeroValue(), ref, old, ids, seqs, zeros, zeros, kl_beta=1.0)
+    got = float(out["kl_div"])
+    with torch.no_grad():
+        states = ids[:, :SEQ]
+        logp = torch.log_softmax(p(states), -1)
+        logq = torch.log_softmax(ref(states), -1)
+        exact = float((logp.exp() * (logp - logq)).sum(-1).mean())
+    # averaged over tokens (as asked), or summed over each sequence's tokens
+    ok = any(abs(got - n * exact) <= 0.25 * n * exact for n in (1, SEQ))
+    assert ok, (
+        f"kl_div = {got:.4f}, but on this rollout KL(pi || pi_ref) averaged over "
+        f"tokens is {exact:.4f}. With d = ref_logp - new_logp, k3 is exp(d) - d - 1; "
+        f"exp(-d) + d - 1 (the ratio pi/pi_ref instead of pi_ref/pi) does not "
+        f"estimate KL(pi || pi_ref).")
+
+
 def check_gradients_reach_policy_and_value_models(ns):
     p = _TokenPolicy(seed=7)
     v = _ZeroValue()
@@ -350,5 +442,8 @@ CHECKS = [
     check_kl_penalty_is_scaled_by_kl_beta,
     check_positive_advantage_lowers_the_loss,
     check_clipping_caps_the_objective,
+    check_min_keeps_the_pessimistic_branch,
+    check_kl_penalty_pulls_the_policy_toward_the_reference,
+    check_kl_div_estimates_kl_from_policy_to_reference,
     check_gradients_reach_policy_and_value_models,
 ]

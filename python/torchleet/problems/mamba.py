@@ -9,6 +9,17 @@ scan is written (python loop, associative scan, parallel prefix — all fine):
     the output must equal torch.cumsum(x, dim=1);
   * changing the last timestep must not change any earlier output — a scan that
     peeks at the future fails this, and so does one that runs backwards.
+
+and, for general time-varying delta/B/C, against the *materialized* form of the
+same recurrence. Unrolling h_t = A_bar_t h_{t-1} + B_bar_t x_t gives
+
+    y_t = sum_{s<=t} C_t . exp(A * (S_t - S_s)) . (delta_s B_s) x_s  +  D x_t,
+    S_t = delta_1 + ... + delta_t,
+
+an (L x L) lower-triangular "attention-like" matrix per channel (the Mamba-2
+SSD view). That oracle computes the same function by a different algorithm, so
+it pins exp(delta*A) (not exp(A), not exp(-delta*A)), B_bar = delta*B, and
+y_t = C_t h_t (not C_{t-1}, not h_{t-1}).
 """
 import torch
 
@@ -68,12 +79,65 @@ def check_scan_is_a_running_sum_when_a_is_zero(ns):
                           torch.ones(BATCH, LEN, 1), torch.ones(BATCH, LEN, 1),
                           torch.zeros(D_INNER))
     expected = torch.cumsum(x, dim=1)
+    assert not torch.isnan(y).any(), (
+        "with A=0 the scan returned NaN. If you used the exact zero-order hold "
+        "B_bar = (exp(delta*A) - 1) / A * B, its A -> 0 limit is delta * B: handle A == 0 "
+        "(torch.where), or use the simplified B_bar = delta * B the notebook asks for.")
     diff = (y - expected).abs().max().item()
     assert torch.allclose(y, expected, atol=1e-4), (
         f"with A=0, delta=B=C=1 and D=0 the recurrence is h_t = h_{{t-1}} + x_t, so "
         f"the output must equal torch.cumsum(x, dim=1) (max diff {diff:.2e}). A "
         f"mismatch at t=0 means the state is not initialized to zeros; a mismatch "
         f"everywhere means the state is not carried across timesteps.")
+
+
+def _materialized_scan(x, delta, A, B, C, D, exact_zoh=False):
+    """Quadratic-time oracle: the scan written as a masked (L x L) mixing matrix.
+
+    B_bar = delta * B is Mamba's simplified discretization (what the notebook
+    asks for); exact_zoh=True uses the exact ZOH B_bar = (exp(delta*A) - 1)/A * B,
+    which is also accepted."""
+    L = x.shape[1]
+    S = torch.cumsum(delta, dim=1)                                   # (B, L, D)
+    gap = S[:, :, None, :] - S[:, None, :, :]                        # (B, t, s, D)
+    causal = torch.ones(L, L, dtype=torch.bool).tril()               # s <= t
+    gap = gap.masked_fill(~causal[None, :, :, None], 0.0)
+    decay = torch.exp(gap[..., None] * A)                            # (B, t, s, D, N)
+    decay = decay * causal[None, :, :, None, None]
+    if exact_zoh:
+        b_bar = torch.expm1(delta[..., None] * A) / A * B[:, :, None, :]   # (B, s, D, N)
+    else:
+        b_bar = delta[..., None] * B[:, :, None, :]
+    # M[b, t, s, d] = sum_n C[b,t,n] * decay[b,t,s,d,n] * b_bar[b,s,d,n]
+    M = torch.einsum("btn,btsdn,bsdn->btsd", C, decay, b_bar)
+    return torch.einsum("btsd,bsd->btd", M, x) + D * x
+
+
+def check_scan_matches_the_materialized_recurrence(ns):
+    """General selective case: time-varying delta, B, C and a nonzero A."""
+    n = 3
+    g = torch.Generator().manual_seed(8)
+    x = torch.randn(BATCH, LEN, D_INNER, generator=g, dtype=torch.float64)
+    delta = torch.rand(BATCH, LEN, D_INNER, generator=g, dtype=torch.float64) * 0.9 + 0.1
+    A = -(torch.rand(D_INNER, n, generator=g, dtype=torch.float64) * 1.5 + 0.2)
+    B = torch.randn(BATCH, LEN, n, generator=g, dtype=torch.float64)
+    C = torch.randn(BATCH, LEN, n, generator=g, dtype=torch.float64)
+    D = torch.randn(D_INNER, generator=g, dtype=torch.float64)
+    expected = _materialized_scan(x, delta, A, B, C, D)
+    got = ns.selective_scan(x.float(), delta.float(), A.float(), B.float(),
+                            C.float(), D.float()).double()
+    assert tuple(got.shape) == tuple(expected.shape), \
+        f"selective_scan should return (B, L, D) = {tuple(expected.shape)}, got {tuple(got.shape)}"
+    diff = float((got - expected).abs().max())
+    zoh = _materialized_scan(x, delta, A, B, C, D, exact_zoh=True)
+    if float((got - zoh).abs().max()) < 1e-4:
+        return      # exact ZOH B_bar instead of the simplified delta*B: also correct
+    assert diff < 1e-4, (
+        f"with time-varying delta/B/C and a nonzero A the scan disagrees with the "
+        f"closed-form unrolled recurrence y_t = sum_(s<=t) C_t exp(A(S_t - S_s)) "
+        f"delta_s B_s x_s + D x_t (max diff {diff:.2e}). Check A_bar = "
+        f"exp(delta * A) (delta inside the exp, no sign flip), B_bar = delta * B, "
+        f"and that y_t reads the state AFTER the update with C at the same t.")
 
 
 def check_scan_is_causal(ns):
@@ -145,6 +209,23 @@ def check_block_is_causal(ns):
         f"d_conv-1 and slice the result back to L so the future is dropped")
 
 
+def check_block_is_stable_on_long_sequences(ns):
+    """A = -exp(A_log) and delta = softplus(.) > 0 make every A_bar = exp(delta*A)
+    lie in (0, 1), so the state is a decaying sum and cannot blow up. A sign slip
+    on A or a missing softplus gives A_bar > 1, which overflows within a few
+    hundred steps."""
+    torch.manual_seed(9)
+    blk = ns.MambaBlock(d_model=8, d_state=4, d_conv=4, expand=2)
+    blk.eval()
+    with torch.no_grad():
+        out = blk(torch.randn(2, 256, 8))
+    assert torch.isfinite(out).all() and float(out.abs().max()) < 1e4, (
+        "on a 256-step sequence the block's output overflowed (NaN/Inf or huge) — "
+        "the state is growing instead of decaying. A must be negative "
+        "(A = -exp(A_log)) and delta must be positive (softplus), so that "
+        "A_bar = exp(delta * A) < 1.")
+
+
 def check_block_trains_every_parameter(ns):
     torch.manual_seed(7)
     blk = ns.MambaBlock(d_model=8, d_state=4, d_conv=4, expand=2)
@@ -161,9 +242,11 @@ CHECKS = [
     check_scan_output_shape,
     check_zero_delta_leaves_only_the_skip,
     check_scan_is_a_running_sum_when_a_is_zero,
+    check_scan_matches_the_materialized_recurrence,
     check_scan_is_causal,
     check_scan_backpropagates,
     check_block_preserves_shape,
     check_block_is_causal,
+    check_block_is_stable_on_long_sequences,
     check_block_trains_every_parameter,
 ]

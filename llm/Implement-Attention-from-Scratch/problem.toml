@@ -21,7 +21,7 @@ question = "attention-q4-Question.ipynb"
 solution = "attention-q4.ipynb"
 
 [grading]
-tier = "A"        # A=auto-graded B=partial C=not auto-graded (SEEDED, confirm)
+tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["scaled_dot_product_attention"]
 extras = []
 device = "cpu"

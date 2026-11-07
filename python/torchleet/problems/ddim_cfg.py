@@ -256,16 +256,20 @@ def check_ddim_final_step_returns_predicted_x0(ns):
 
 
 def check_ddim_step_applies_guidance(ns):
+    """Every scale except exactly 1 needs the blend -- including s < 1, which pulls
+    towards the unconditional prediction (`if guidance_scale > 1` gets that wrong)."""
     m = _LabelDenoiser()
     x, y = torch.randn(32, DIM), _labels(32, 1)
-    got = ns.ddim_sample_step(m, x, 150, 100, ABAR, y, 3.0, NUM_CLASSES)
-    eps = torch.full_like(x, NUM_CLASSES + 3.0 * (1 - NUM_CLASSES))
-    expected = _ddim(x, 150, 100, eps)
-    assert torch.allclose(got, expected, atol=1e-4), (
-        "with guidance_scale = 3 the step must use the guided noise "
-        f"{float(eps.flatten()[0]):.1f} (= {NUM_CLASSES} + 3*(1 - {NUM_CLASSES})), "
-        f"not the raw conditional prediction; max deviation "
-        f"{float((got - expected).abs().max()):.5f}")
+    for s in (3.0, 0.5):
+        got = ns.ddim_sample_step(m, x, 150, 100, ABAR, y, s, NUM_CLASSES)
+        eps = torch.full_like(x, NUM_CLASSES + s * (1 - NUM_CLASSES))
+        expected = _ddim(x, 150, 100, eps)
+        assert torch.allclose(got, expected, atol=1e-4), (
+            f"with guidance_scale = {s:g} the step must use the guided noise "
+            f"{float(eps.flatten()[0]):.1f} (= {NUM_CLASSES} + {s:g}*(1 - {NUM_CLASSES})), "
+            f"not the raw conditional prediction -- guidance applies whenever "
+            f"guidance_scale != 1; max deviation "
+            f"{float((got - expected).abs().max()):.5f}")
 
 
 # --------------------------------------------------------------------------
@@ -297,27 +301,30 @@ def check_ddim_loop_is_reproducible(ns):
 
 
 def check_ddim_loop_uses_a_decreasing_subsequence_of_timesteps(ns):
-    m = _RecordingDenoiser()
-    steps = 10
-    torch.manual_seed(0)
-    ns.ddim_sample_loop(m, (4, DIM), ABAR, _labels(4, 1), num_steps=steps,
-                        guidance_scale=1.0, num_classes=NUM_CLASSES,
-                        total_timesteps=TOTAL)
-    seen = [t for i, t in enumerate(m.seen) if i == 0 or t != m.seen[i - 1]]
-    assert len(seen) == steps, (
-        f"asking for num_steps={steps} must visit exactly {steps} timesteps; the "
-        f"denoiser was called at {len(seen)} distinct timesteps ({seen})")
-    assert all(b < a for a, b in zip(seen, seen[1:])), \
-        f"DDIM walks the timesteps backwards, so they must strictly decrease; got {seen}"
-    assert 0 <= min(seen) and max(seen) < TOTAL, (
-        f"timesteps must index the schedule, i.e. lie in [0, {TOTAL}); got range "
-        f"[{min(seen)}, {max(seen)}]")
-    stride = TOTAL // steps
-    assert seen[0] >= TOTAL - 2 * stride, (
-        f"sampling must start near the noisiest end of the schedule (~{TOTAL}), "
-        f"it started at t={seen[0]}")
-    assert seen[-1] <= stride, \
-        f"sampling must finish at (or next to) t=0, it stopped at t={seen[-1]}"
+    # 7 does not divide 300: range(0, T, T // num_steps) would give 8 steps.
+    for steps in (10, 7):
+        m = _RecordingDenoiser()
+        torch.manual_seed(0)
+        ns.ddim_sample_loop(m, (4, DIM), ABAR, _labels(4, 1), num_steps=steps,
+                            guidance_scale=1.0, num_classes=NUM_CLASSES,
+                            total_timesteps=TOTAL)
+        seen = [t for i, t in enumerate(m.seen) if i == 0 or t != m.seen[i - 1]]
+        assert len(seen) == steps, (
+            f"asking for num_steps={steps} out of T={TOTAL} must visit exactly "
+            f"{steps} timesteps; the denoiser was called at {len(seen)} distinct "
+            f"timesteps ({seen}). With a stride of T // num_steps you get extra "
+            f"steps whenever num_steps does not divide T.")
+        assert all(b < a for a, b in zip(seen, seen[1:])), \
+            f"DDIM walks the timesteps backwards, so they must strictly decrease; got {seen}"
+        assert 0 <= min(seen) and max(seen) < TOTAL, (
+            f"timesteps must index the schedule, i.e. lie in [0, {TOTAL}); got range "
+            f"[{min(seen)}, {max(seen)}]")
+        stride = TOTAL // steps
+        assert seen[0] >= TOTAL - 2 * stride, (
+            f"sampling must start near the noisiest end of the schedule (~{TOTAL}), "
+            f"it started at t={seen[0]}")
+        assert seen[-1] <= stride, \
+            f"sampling must finish at (or next to) t=0, it stopped at t={seen[-1]}"
 
 
 def check_ddim_loop_is_class_conditional(ns):

@@ -10,12 +10,24 @@ Graded by properties rather than by diffing against a reference ViT:
   output (self-consistency), must see every patch, and must *not* be invariant
   to shuffling patches — without positional embeddings a transformer is
   permutation equivariant, so that check is exactly the positional-embedding test.
-* the MAE loss is pinned in closed form by feeding a per-sample constant image:
-  then the reconstruction target is a known number regardless of how the solver
-  orders pixels inside a patch, and the masked-only average can be recomputed
+* the MAE loss is pinned in closed form by feeding images that are constant
+  inside every patch (a different constant per patch and per image): then the
+  reconstruction target of token i is a known number regardless of how the
+  solver orders pixels inside a patch, but it still depends on patchify putting
+  the right pixels under the right token. The masked-only average is recomputed
   from the returned pred and mask.
+* the encoder must only see the visible patches: with the RNG re-seeded so the
+  same mask is drawn, rewriting the pixels of every *masked* patch must leave
+  pred untouched, while rewriting a visible one must change it. That pins the
+  mask convention (1 = masked), the gather of the kept tokens, and returning the
+  mask in the original (unshuffled) patch order.
+* training is checked by where the gradient goes, not by parameter names: the
+  loss (masked patches only) must send gradient to the pixels of the VISIBLE
+  patches, which it can only reach through encoder -> decoder -> masked pred.
 """
 import torch
+
+from torchleet.runner import Skip
 
 ENTRIES = ["PatchEmbedding", "ViT", "MAE"]
 DEVICE = "cpu"
@@ -263,40 +275,141 @@ def check_masking_is_random_per_forward(ns):
         "random subset of patches each time (argsort of torch.rand), not a fixed one")
 
 
+def _patchwise_constant_images(b=3, seed=0):
+    """Images that are constant inside each patch; returns (images, values) with
+    values[b, i] the constant of row-major patch i of image b."""
+    g = torch.Generator().manual_seed(seed)
+    values = torch.randn(b, NP, generator=g)
+    grid = values.reshape(b, 1, GRID, GRID)
+    imgs = grid.repeat_interleave(PATCH, dim=2).repeat_interleave(PATCH, dim=3)
+    return imgs.expand(b, CH, IMG, IMG).clone(), values
+
+
 def check_loss_averages_over_masked_patches_only(ns):
-    """A per-sample constant image makes the target a known number, whatever
-    order the solver flattens pixels inside a patch."""
+    """Patch-wise constant images make every patch's target a known number,
+    whatever order the solver flattens pixels inside a patch."""
     mae = _mae(ns)
-    consts = torch.tensor([0.25, -0.5, 1.5]).reshape(3, 1, 1, 1)
-    imgs = consts.expand(3, CH, IMG, IMG).clone()
+    imgs, values = _patchwise_constant_images()
     loss, pred, mask = _mae_forward(mae, imgs)
     m = mask.float()
-    per_patch = ((pred - consts.reshape(3, 1, 1)) ** 2).mean(dim=-1)   # (B, N)
+    per_patch = ((pred - values[..., None]) ** 2).mean(dim=-1)   # (B, N)
     expected = float((per_patch * m).sum() / m.sum())
     unmasked = float(per_patch.mean())
     assert abs(float(loss) - expected) < 1e-4, (
-        f"the MAE objective is the squared error against the original pixels, "
-        f"averaged over MASKED patches only: (per_patch_mse * mask).sum() / "
-        f"mask.sum() = {expected:.6f}; got {float(loss):.6f} (averaging over all "
-        f"patches would give {unmasked:.6f})")
+        f"the MAE objective is the squared error of each predicted patch against "
+        f"the ORIGINAL pixels of that same patch (patchify in row-major patch "
+        f"order, like the tokens), averaged over MASKED patches only: "
+        f"(per_patch_mse * mask).sum() / mask.sum() = {expected:.6f}; got "
+        f"{float(loss):.6f} (averaging over all patches would give "
+        f"{unmasked:.6f}). If only the patch order is wrong, check that patchify "
+        f"permutes (B, C, h, p, w, p) -> (B, h, w, p, p, C) before flattening.")
+
+
+def check_encoder_never_sees_masked_patches(ns):
+    """Same mask (re-seeded RNG), rewrite every masked patch: pred must not move."""
+    mae = _mae(ns)
+    torch.manual_seed(1)
+    imgs = torch.rand(2, CH, IMG, IMG)
+    torch.manual_seed(123)
+    with torch.no_grad():
+        _, pred, mask = _mae_forward(mae, imgs)
+    masked = mask.float() > 0.5
+    if not masked.any() or masked.all():
+        raise AssertionError("expected a mix of masked and visible patches at mask_ratio=0.75")
+
+    def rewrite(which):
+        out = imgs.clone()
+        g = torch.Generator().manual_seed(7)
+        for b in range(imgs.shape[0]):
+            for i in range(NP):
+                if which[b, i]:
+                    r, c = divmod(i, GRID)
+                    out[b, :, r * PATCH:(r + 1) * PATCH, c * PATCH:(c + 1) * PATCH] = \
+                        torch.rand(CH, PATCH, PATCH, generator=g) * 3 - 1
+        return out
+
+    torch.manual_seed(123)
+    with torch.no_grad():
+        _, pred_m, mask_m = _mae_forward(mae, rewrite(masked))
+    if not torch.equal(mask_m, mask):
+        raise Skip("the random mask is not reproducible under torch.manual_seed "
+                   "(draw it with torch.rand / torch.randperm to make this checkable)")
+    diff = float((pred_m - pred).abs().max())
+    assert diff < 1e-5, (
+        f"rewriting only the pixels of MASKED patches changed the prediction "
+        f"(max diff {diff:.2e}) — the encoder is seeing patches it should not. "
+        f"Encode only the kept tokens (ids_shuffle[:, :n_keep]), mark mask = 1 for "
+        f"the dropped ones, and return the mask unshuffled to the original patch "
+        f"order (gather with ids_restore).")
+    visible = ~masked
+    torch.manual_seed(123)
+    with torch.no_grad():
+        _, pred_v, _ = _mae_forward(mae, rewrite(visible))
+    assert not torch.allclose(pred_v, pred, atol=1e-6), (
+        "rewriting the VISIBLE patches did not change the prediction — the "
+        "decoder output does not depend on the encoded visible tokens")
 
 
 def check_mae_gradients_flow(ns):
+    """Graded by where the gradient goes, not by parameter names.
+
+    The loss only looks at MASKED patches, so the gradient can reach the pixels of
+    a VISIBLE patch only along patch embedding -> encoder -> decoder -> pred at the
+    masked positions. A non-zero gradient there proves both halves are on the
+    differentiable path; a detached or no_grad encoder, or a pred that skips the
+    decoder (masked positions then see nothing but the mask token), leaves it at 0.
+    A frozen network (requires_grad_(False) on most of what produces pred) still
+    passes that gradient through, so the share of frozen parameters is checked too."""
     mae = _mae(ns)
-    loss, _, _ = _mae_forward(mae, torch.randn(2, CH, IMG, IMG))
-    loss.backward()
-    named = [(n, p.grad) for n, p in mae.named_parameters()]
-    assert any(g is not None and bool((g != 0).any()) for _, g in named), \
+    torch.manual_seed(5)
+    imgs = torch.randn(2, CH, IMG, IMG, requires_grad=True)
+    loss, pred, mask = _mae_forward(mae, imgs)
+    try:
+        loss.backward()
+    except RuntimeError as e:
+        raise AssertionError(
+            f"loss.backward() failed ({e}) — the loss is not connected to the model's "
+            f"parameters (is pred or the loss detached?)")
+    assert any(p.grad is not None and bool((p.grad != 0).any())
+               for p in mae.parameters() if p.requires_grad), \
         "no MAE parameter received a gradient from the reconstruction loss"
-    dec = [(n, g) for n, g in named
-           if g is not None and "decod" in n.lower() and bool((g != 0).any())]
-    enc = [(n, g) for n, g in named
-           if g is not None and ("encod" in n.lower() or "patch" in n.lower())
-           and bool((g != 0).any())]
-    assert dec, "the decoder received no gradient — check that pred comes from it"
-    assert enc, (
-        "the encoder / patch embedding received no gradient — the visible patches "
-        "must flow through the encoder into the decoder, not be detached")
+
+    if imgs.grad is None:
+        raise Skip("MAE.forward detaches the input images, so the gradient path "
+                   "through the encoder could not be traced")
+    per_patch = imgs.grad.abs().reshape(2, CH, GRID, PATCH, GRID, PATCH).sum(dim=(1, 3, 5))
+    visible = mask.detach().float().reshape(2, GRID, GRID) < 0.5
+    assert bool(visible.any()), "expected some visible patches at mask_ratio=0.75"
+    assert float(per_patch[visible].max()) > 0, (
+        "the loss sends no gradient to the pixels of the VISIBLE patches, so the "
+        "patch embedding and encoder can never learn: the encoded visible tokens "
+        "must flow (not detached, not under torch.no_grad) through the decoder into "
+        "the predictions for the masked patches — which also means pred has to come "
+        "from a decoder that mixes visible tokens with the mask tokens")
+
+    frozen = [p for p in mae.parameters() if not p.requires_grad]
+    if frozen:
+        # Which frozen parameters actually shape pred? Unfreeze them for one probe.
+        mae.zero_grad(set_to_none=True)
+        for p in frozen:
+            p.requires_grad_(True)
+        try:
+            torch.manual_seed(5)
+            _, pred2, _ = _mae_forward(mae, imgs.detach())
+            (pred2 * torch.randn_like(pred2)).sum().backward()
+            used = [p for p in mae.parameters()
+                    if p.grad is not None and bool((p.grad != 0).any())]
+            frozen_ids = {id(p) for p in frozen}
+            n_used = sum(p.numel() for p in used)
+            n_frozen = sum(p.numel() for p in used if id(p) in frozen_ids)
+        finally:
+            for p in frozen:
+                p.requires_grad_(False)
+        assert n_frozen <= 0.1 * n_used, (
+            f"{n_frozen} of the {n_used} parameter values that produce pred have "
+            f"requires_grad=False, so the optimiser can never update them. Only small "
+            f"fixed tensors such as sin-cos positional embeddings should be frozen; "
+            f"the patch embedding, encoder and decoder must be trainable.")
 
 
 CHECKS = [
@@ -313,5 +426,6 @@ CHECKS = [
     check_zero_mask_ratio_masks_nothing,
     check_masking_is_random_per_forward,
     check_loss_averages_over_masked_patches_only,
+    check_encoder_never_sees_masked_patches,
     check_mae_gradients_flow,
 ]

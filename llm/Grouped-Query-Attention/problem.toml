@@ -11,9 +11,9 @@ tracks = ["advanced", "llm-path"]
 
 # GENERATED from the grader spec — edit python/torchleet/problems/*.py, then run: generate.py hints
 hints = [
-  "Queries keep all their heads; keys and values only have num_query_groups heads.",
-  "Project K/V to num_query_groups * d_head, not to d_model — that is where the saving comes from.",
-  "repeat_interleave each K/V head across the query heads that share it, then attend as usual.",
+  "Queries keep all num_query_heads heads; keys and values only have num_query_groups heads, each shared by a group of g = num_query_heads // num_query_groups query heads.",
+  "W_k and W_v project to num_query_groups * d_head features, not d_model — that is where the KV-cache saving comes from. Split them into num_query_groups heads.",
+  "Expand K/V with repeat_interleave(g, dim=1) so query head h uses K/V head h // g (a plain repeat/tile would pair it with h % num_query_groups), then attend as in MHA.",
 ]
 
 [notebooks]
@@ -21,7 +21,7 @@ question = "grouped-query-attention-Question.ipynb"
 solution = "grouped-query-attention.ipynb"
 
 [grading]
-tier = "A"        # A=auto-graded B=partial C=not auto-graded (SEEDED, confirm)
+tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["grouped_query_attention"]
 extras = []
 device = "cpu"

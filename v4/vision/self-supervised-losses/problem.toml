@@ -1,0 +1,25 @@
+id = "self-supervised-losses"
+title = "Self-Supervised Objectives: SimCLR's NT-Xent and DINO"
+description = "Implement SimCLR's NT-Xent loss over 2N views, DINO's centred and sharpened multi-crop self-distillation loss with its center buffer, and the in-place EMA teacher update."
+difficulty = "medium"
+number = 31
+set = "v4"
+category = "vision"
+tracks = ["advanced"]
+
+# GENERATED from the grader spec — edit python/torchleet/problems/*.py, then run: generate.py hints
+hints = [
+  "NT-Xent: stack both views into one (2N, D) batch so every view is an anchor and every other view is a candidate; the positive of view i is the other augmentation of the same image. DINO: the teacher only sees the 2 global crops, the student sees all crops, and a crop is never compared with itself. The EMA update is not part of training: keep autograd out of it.",
+  "NT-Xent: L2-normalise, build the (2N, 2N) cosine matrix divided by tau, and remove the diagonal from the softmax by setting it to -inf (not 0). Then it is cross-entropy with target i + N for i < N and i - N otherwise, averaged over 2N rows. DINO: teacher probabilities = softmax((t - center) / teacher_temp) computed on detached outputs; student log-probabilities = log_softmax(s / student_temp); the center update uses the TEACHER outputs and happens after the loss.",
+  "DINO: chunk the student output into ncrops blocks and the teacher's into 2; for each teacher block iq and student block v with v != iq, add the batch mean of the cross-entropy -sum_k q_k log p_k; divide by the number of terms, 2 * (ncrops - 1). Then, under no_grad, move the center: m times the old center plus (1 - m) times the mean of all 2B teacher rows. EMA: under no_grad, scale each teacher parameter by m in place and add (1 - m) times the matching student parameter; leave buffers alone.",
+]
+
+[notebooks]
+question = "self-supervised-losses.ipynb"
+solution = "self-supervised-losses_SOLN.ipynb"
+
+[grading]
+tier = "A"        # A = auto-graded by check(), C = not graded
+entries = ["nt_xent_loss", "DINOLoss", "ema_update_"]
+extras = []
+device = "cpu"

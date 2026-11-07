@@ -19,6 +19,11 @@ HINTS = [
     "discriminator with Sigmoid so its output is a probability BCELoss can take.",
     "When you train the generator do NOT detach the fake batch — the gradient has "
     "to flow back through the discriminator into the generator.",
+    "Training loop: D step = BCE(D(real), 1) + BCE(D(G(z).detach()), 0); G step "
+    "= BCE(D(G(z)), 1) on a fake batch that is NOT detached (fresh noise, or the "
+    "same G(z) the D step detached) — the non-saturating -log D(G(z)), not "
+    "log(1 - D(G(z))). zero_grad the optimizer you are about to step before its "
+    "backward().",
 ]
 
 LATENT, DATA = 10, 1
@@ -65,7 +70,8 @@ def check_discriminator_outputs_one_probability(ns):
     assert float(out.min()) >= 0.0 and float(out.max()) <= 1.0, (
         f"discriminator outputs span [{float(out.min()):.3f}, "
         f"{float(out.max()):.3f}] — BCELoss needs a probability, so finish with "
-        "Sigmoid (or switch to BCEWithLogitsLoss)")
+        "Sigmoid (this problem pairs Sigmoid with BCELoss instead of returning a "
+        "logit for BCEWithLogitsLoss)")
 
 
 def check_batch_agnostic(ns):

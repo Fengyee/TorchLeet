@@ -1,0 +1,25 @@
+id = "unet"
+title = "Time-Conditioned U-Net (Diffusion Denoiser)"
+description = "Build a small time-conditioned U-Net (sinusoidal timestep embedding, GroupNorm ResBlocks, concatenated skips) of the kind used as a diffusion denoiser."
+difficulty = "medium"
+number = 16
+set = "v4"
+category = "vision"
+tracks = ["advanced"]
+
+# GENERATED from the grader spec — edit python/torchleet/problems/*.py, then run: generate.py hints
+hints = [
+  "Build bottom-up: the embedding is a fixed function of t (no parameters), ResBlock is norm-act-conv twice with the projected time embedding added in between, and the UNet only wires ResBlocks, downsamples and upsamples together.",
+  "In ResBlock the time projection gives (N, out_ch); index it with [:, :, None, None] so it broadcasts over H and W. When in_ch != out_ch the residual needs a 1x1 conv so skip(x) + h has matching channels. Return the sum as is, nothing after it.",
+  "In UNet.forward keep a list: after each encoder level's ResBlock append h, then downsample (except at the last level). In the decoder walk the levels in reverse: torch.cat([h, skips.pop()], dim=1), a ResBlock whose in_ch is the sum of both widths, then upsample (except at the top level).",
+]
+
+[notebooks]
+question = "unet.ipynb"
+solution = "unet_SOLN.ipynb"
+
+[grading]
+tier = "A"        # A = auto-graded by check(), C = not graded
+entries = ["SinusoidalTimeEmbedding", "ResBlock", "UNet"]
+extras = []
+device = "cpu"

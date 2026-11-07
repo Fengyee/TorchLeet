@@ -1,19 +1,26 @@
 id = "xai"
 legacy_ids = ["v1-31"]
-title = "Explainable AI (GradCAM/SHAP)"
-description = "Visualize which image regions drive CNN predictions using Grad-CAM heatmaps and SHAP feature attributions."
-difficulty = "hard"
+title = "Explainable AI with Grad-CAM"
+description = "Visualize which image regions drive a CNN's prediction with Grad-CAM: hooks capture a late layer's activations and gradients, and gradient-weighted feature maps give the heatmap."
+difficulty = "medium"
 frequency = "emerging"   # very-likely | common | emerging (derived from company reports)
 number = 31
 set = "v1"
 tracks = ["advanced"]
+
+# GENERATED from the grader spec — edit python/torchleet/problems/*.py, then run: generate.py hints
+hints = [
+  "You need two tensors from the target layer: its output A (forward) and the gradient of the class score with respect to A (backward). A forward hook on target_layer can keep A; from there A.register_hook or torch.autograd.grad gives dy^c/dA. Keep the handle that register_forward_hook returns so you can remove the hook again.",
+  "Score each sample by the logit of its own class (gather along dim 1, never the softmax) and sum those scores, so one backward pass gives every sample its own gradient. alpha is that gradient averaged over the spatial dims (2, 3) only — not over the batch — and the map is ReLU of the alpha-weighted sum of A over the channel dim: shape (N, h, w), not normalised.",
+  "For a frozen model inside torch.no_grad(): run the forward under torch.enable_grad() on a detached copy of x that requires grad, so a graph exists without touching the parameters. Remove the hook in a finally block. upsample_cam: F.interpolate on cam.unsqueeze(1) with mode='bilinear', align_corners=False, then divide each map by its own amax over (H, W) plus a small eps such as 1e-8.",
+]
 
 [notebooks]
 question = "xai.ipynb"
 solution = "xai_SOLN.ipynb"
 
 [grading]
-tier = "C"        # A=auto-graded B=partial C=not auto-graded (SEEDED, confirm)
-entries = []
-extras = ["PIL", "matplotlib", "torchvision"]
+tier = "A"        # A = auto-graded by check(), C = not graded
+entries = ["grad_cam", "upsample_cam"]
+extras = []
 device = "cpu"

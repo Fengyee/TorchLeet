@@ -1,0 +1,25 @@
+id = "siglip-loss"
+title = "SigLIP: Sigmoid Loss for Language–Image Pre-training"
+description = "Implement SigLIP's pairwise sigmoid image-text loss with a learnable temperature and bias, numerically stable and normalized by batch size as in the paper."
+difficulty = "easy"
+number = 21
+set = "v4"
+category = "multimodal"
+tracks = ["basics"]
+
+# GENERATED from the grader spec — edit python/torchleet/problems/*.py, then run: generate.py hints
+hints = [
+  "There is no softmax over the batch: every (image i, text j) pair is its own binary classification. The N matching pairs on the diagonal are positives (z = +1); the other N^2 - N pairs are negatives (z = -1).",
+  "L2-normalize both embedding sets along the feature dim, then logits = exp(logit_scale) * img @ txt.T + logit_bias. Build the +/-1 label matrix from torch.eye (2*I - 1).",
+  "loss = -(sum of log-sigmoid(z * logits)) / N — divide by the batch size N, not by N^2, so it is not a .mean() over the matrix. Use F.logsigmoid: log(sigmoid(x)) underflows to -inf for very negative x. SigLIPHead stores logit_scale = log(10) and logit_bias = -10 as nn.Parameters.",
+]
+
+[notebooks]
+question = "siglip-loss.ipynb"
+solution = "siglip-loss_SOLN.ipynb"
+
+[grading]
+tier = "A"        # A = auto-graded by check(), C = not graded
+entries = ["siglip_loss", "SigLIPHead"]
+extras = []
+device = "cpu"

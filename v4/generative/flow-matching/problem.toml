@@ -1,0 +1,25 @@
+id = "flow-matching"
+title = "Flow Matching (Rectified Flow) with Euler Sampling"
+description = "Implement conditional flow matching with the linear (rectified-flow) path used by SD3/Flux: interpolation, velocity-regression loss and an Euler ODE sampler."
+difficulty = "medium"
+number = 18
+set = "v4"
+category = "generative"
+tracks = ["advanced"]
+
+# GENERATED from the grader spec — edit python/torchleet/problems/*.py, then run: generate.py hints
+hints = [
+  "Everything follows from one straight line per pair: x_t = (1 - t) * x0 + t * x1 moves from noise (t = 0) to data (t = 1) at constant speed, so its time derivative — the regression target — is x1 - x0, independent of t.",
+  "t has shape (N,) but x0 may be (N, D) or (N, C, H, W): reshape t to (N, 1, ..., 1) before mixing. When x0 / t are None, draw x0 with torch.randn_like(x1) and t with torch.rand(N) (one time per sample), then return the mean squared error between model(x_t, t) and x1 - x0.",
+  "Euler: dt = 1 / num_steps; for k in 0 .. num_steps-1, call the model at t = k * dt (a (N,) tensor filled with that value) and update x = x + dt * v. Do not update x0 in place and do not call the model at t = 1.",
+]
+
+[notebooks]
+question = "flow-matching.ipynb"
+solution = "flow-matching_SOLN.ipynb"
+
+[grading]
+tier = "A"        # A = auto-graded by check(), C = not graded
+entries = ["interpolate", "flow_matching_loss", "euler_sample"]
+extras = []
+device = "cpu"

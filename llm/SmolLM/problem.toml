@@ -1,7 +1,7 @@
 id = "smollm"
 legacy_ids = ["v2-12"]
 title = "Implement SmolLM from Scratch"
-description = "Build a complete small language model end-to-end: tokenizer integration, transformer blocks, and autoregressive text generation."
+description = "Build SmolLM-135M (Llama architecture: RoPE, grouped-query attention, SwiGLU, RMSNorm, tied embeddings) from scratch, load the pretrained weights and match the reference logits."
 difficulty = "hard"
 frequency = "emerging"   # very-likely | common | emerging (derived from company reports)
 number = 12
@@ -21,9 +21,9 @@ question = "smollm-q12-Question.ipynb"
 solution = "smollm-q12.ipynb"
 
 [grading]
-tier = "C"        # A=auto-graded B=partial C=not auto-graded (SEEDED, confirm)
+tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["rotate_half", "apply_rotary_pos_emb", "repeat_kv", "RotaryEmbedder", "RopeAttention"]
-extras = ["transformers"]
+extras = []
 device = "cpu"
 
 [llm_path]

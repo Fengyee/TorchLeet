@@ -12,7 +12,7 @@ tracks = ["advanced"]
 # GENERATED from the grader spec — edit python/torchleet/problems/*.py, then run: generate.py hints
 hints = [
   "Encode the row and the column separately, then concatenate the two halves.",
-  "Each half is a standard 1D sinusoidal embedding of size d_model // 2.",
+  "Each half is a standard 1D sinusoidal embedding of size d_half = d_model // 2, with frequencies 1 / 10000^(2i / d_half) — so d_model must be divisible by 4.",
   "Flatten the grid in row-major order so index r*width + c is position (r, c).",
 ]
 
@@ -21,7 +21,7 @@ question = "2d-positional-embeddings.ipynb"
 solution = "2d-positional-embeddings_SOLN.ipynb"
 
 [grading]
-tier = "A"        # A=auto-graded B=partial C=not auto-graded (SEEDED, confirm)
+tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["create_2d_sinusoidal_embeddings"]
 extras = []
 device = "cpu"

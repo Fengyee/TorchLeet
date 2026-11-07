@@ -1,0 +1,25 @@
+id = "sequence-packing"
+title = "Sequence Packing with Document Masks"
+description = "Pack variable-length documents into fixed-length rows with first-fit-decreasing bin packing, then build the position ids, FlashAttention-style cu_seqlens, boundary-aware next-token labels and block-diagonal causal mask that make the packed batch exactly equivalent to running each document alone."
+difficulty = "medium"
+number = 34
+set = "v4"
+category = "systems"
+tracks = ["advanced"]
+
+# GENERATED from the grader spec — edit python/torchleet/problems/*.py, then run: generate.py hints
+hints = [
+  "Packing is a bin-packing problem: rows are bins of capacity max_len. Sort longest first, then each document goes into the first row that still has room. Everything else (positions, labels, mask) can be derived from doc_ids, the per-token document index.",
+  "Keep a list of row contents and a list of free space per row; a document of length n goes to the lowest r with free[r] >= n. cu_seqlens is a 0 followed by the cumulative sum of the document lengths in row-major order, as int32. Labels: compare each doc id with its right neighbour (a shifted slice of doc_ids). Mask: broadcast a (R, L, 1) view of doc_ids against a (R, 1, L) view.",
+  "Labels: start from a tensor full of -100; for every column but the last, copy the NEXT token wherever the next position belongs to the same document and the current position is not padding. Mask: AND the same-document comparison with a lower-triangular (causal) L x L matrix. Keep the comparison -1 == -1 as True — padding then forms its own causal block, so every row has at least its diagonal and no softmax row is all -inf.",
+]
+
+[notebooks]
+question = "sequence-packing.ipynb"
+solution = "sequence-packing_SOLN.ipynb"
+
+[grading]
+tier = "A"        # A = auto-graded by check(), C = not graded
+entries = ["pack_sequences", "packed_labels", "document_causal_mask"]
+extras = []
+device = "cpu"

@@ -10,9 +10,8 @@ stored reference, so a correct solution that differs from ours still passes.
 """
 from __future__ import annotations
 
-import json
 
-from .runner import PROGRESS, Skip, report, run, _spec
+from .runner import Skip, load_progress, report, run, _spec
 
 __all__ = ["check", "hint", "status", "Skip"]
 
@@ -53,10 +52,10 @@ def hint(problem_id: str, n: int | None = None) -> None:
 
 def status() -> None:
     """Show which problems you've passed on this machine."""
-    if not PROGRESS.exists():
+    data = load_progress()
+    if not data:
         print("  no problems passed yet — run check(...) on one")
         return
-    data = json.loads(PROGRESS.read_text())
     full = [p for p, v in data.items() if not v.get("partial")]
     part = [p for p, v in data.items() if v.get("partial")]
     print(f"\n  torchleet — {len(full)} passed"

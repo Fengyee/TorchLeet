@@ -1,0 +1,25 @@
+id = "decision-tree"
+title = "Decision Tree Classifier (CART)"
+description = "Build a CART classification tree from scratch with Gini splits found by a vectorized sort-and-cumsum search over every threshold."
+difficulty = "medium"
+number = 1
+set = "v4"
+category = "ml-fundamentals"
+tracks = ["basics"]
+
+# GENERATED from the grader spec — edit python/torchleet/problems/*.py, then run: generate.py hints
+hints = [
+  "Grow the tree recursively: at each node try every feature and every candidate threshold, keep the split with the lowest weighted child Gini, and stop at max_depth, below min_samples_split, or when no split strictly lowers the impurity.",
+  "Sort one feature column once. A cut after sorted position i sends the first i+1 samples left, so the left class counts for every cut are a cumsum of the one-hot labels in sorted order, and the right counts are total minus left.",
+  "With counts c_L and c_R, n_L*Gini_L + n_R*Gini_R = n - (|c_L|^2/n_L + |c_R|^2/n_R). Mask cuts between equal values, take the argmax over (cut, feature), and use the midpoint of the two neighbouring sorted values as the threshold (x <= t goes left).",
+]
+
+[notebooks]
+question = "decision-tree.ipynb"
+solution = "decision-tree_SOLN.ipynb"
+
+[grading]
+tier = "A"        # A = auto-graded by check(), C = not graded
+entries = ["DecisionTreeClassifier"]
+extras = []
+device = "cpu"

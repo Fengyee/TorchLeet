@@ -1,7 +1,7 @@
 id = "sliding-window-attention"
 legacy_ids = ["v3-13"]
 title = "Implement Sliding Window Attention"
-description = "Restrict attention to a fixed local window around each token, reducing memory from O(n²) to O(n·w) for long sequences."
+description = "Restrict attention to a local window around each token (bidirectional or Mistral-style causal), cutting attention cost from O(n²) to O(n·w) for long sequences."
 difficulty = "medium"
 frequency = "very-likely"   # very-likely | common | emerging (derived from company reports)
 number = 13
@@ -11,9 +11,9 @@ tracks = ["llm-path", "advanced"]
 
 # GENERATED from the grader spec — edit python/torchleet/problems/*.py, then run: generate.py hints
 hints = [
-  "Position i may attend to j when |i - j| <= window_size.",
-  "Build the mask from pairwise distances: (arange - arange.T).abs() <= window_size.",
-  "Masked positions get -inf BEFORE the softmax, not zero after it.",
+  "Position i may attend to j when |i - j| <= window_size; with causal=True, only when also j <= i.",
+  "Build the mask from pairwise offsets: pos = torch.arange(seq_len), then (pos[:, None] - pos[None, :]).abs() <= window_size (rows are queries, columns keys). For causal=True, AND it with pos[:, None] >= pos[None, :].",
+  "Masked positions get -inf BEFORE the softmax, not zero after it, and the scores are scaled by 1/sqrt(d) as in ordinary attention.",
 ]
 
 [notebooks]
@@ -21,7 +21,7 @@ question = "sliding-window-attention.ipynb"
 solution = "sliding-window-attention_SOLN.ipynb"
 
 [grading]
-tier = "A"        # A=auto-graded B=partial C=not auto-graded (SEEDED, confirm)
+tier = "A"        # A = auto-graded by check(), C = not graded
 entries = ["create_sliding_window_mask", "full_attention", "sliding_window_attention"]
 extras = []
 device = "cpu"

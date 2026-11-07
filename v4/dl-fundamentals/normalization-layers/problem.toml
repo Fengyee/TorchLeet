@@ -1,0 +1,25 @@
+id = "normalization-layers"
+title = "Normalization Layers & Dropout from Scratch"
+description = "Implement BatchNorm2d (with running statistics), LayerNorm, GroupNorm and inverted Dropout as nn.Modules that match PyTorch's outputs and gradients in train and eval mode."
+difficulty = "medium"
+number = 10
+set = "v4"
+category = "dl-fundamentals"
+tracks = ["basics"]
+
+# GENERATED from the grader spec — edit python/torchleet/problems/*.py, then run: generate.py hints
+hints = [
+  "All three norms compute (x - mean) / sqrt(var + eps) followed by a learnable per-feature affine; they differ only in WHICH axes the statistics are taken over. For an (N, C, H, W) input: BatchNorm over (N, H, W) for each channel, LayerNorm over the trailing normalized_shape dims of each sample, GroupNorm over (C/G, H, W) for each sample and group.",
+  "Normalize with the biased variance (unbiased=False). BatchNorm in training also updates running = (1 - momentum) * running + momentum * batch_stat under torch.no_grad(), using the UNBIASED variance (x n/(n-1), n = N*H*W) for running_var; in eval it normalizes with the running stats. Store them with register_buffer, and branch on self.training.",
+  "GroupNorm: reshape to (N, G, -1) so each group holds C/G consecutive channels, normalize over the last dim, reshape back, then apply weight/bias of shape (C,) viewed as (1, C, 1, 1). Dropout: draw a keep-mask with P(keep) = 1 - p, return x * mask / (1 - p) in training, x itself in eval, and zeros when p == 1 (dividing by 1 - p = 0 would give NaN).",
+]
+
+[notebooks]
+question = "normalization-layers.ipynb"
+solution = "normalization-layers_SOLN.ipynb"
+
+[grading]
+tier = "A"        # A = auto-graded by check(), C = not graded
+entries = ["BatchNorm2d", "LayerNorm", "GroupNorm", "Dropout"]
+extras = []
+device = "cpu"

@@ -1,0 +1,25 @@
+id = "dit-block"
+title = "Diffusion Transformer (DiT) Block with adaLN-Zero"
+description = "Build a Diffusion Transformer block with adaLN-Zero conditioning, a sinusoidal timestep embedder, and patchify/unpatchify for latent images."
+difficulty = "hard"
+number = 19
+set = "v4"
+category = "generative"
+tracks = ["advanced"]
+
+# GENERATED from the grader spec — edit python/torchleet/problems/*.py, then run: generate.py hints
+hints = [
+  "adaLN-Zero turns the conditioning vector c into six (B, D) vectors with one Linear(D, 6D) after a SiLU: a shift, scale and gate for the attention branch and for the MLP branch. Initialise that Linear's weight and bias to zero — every gate is then 0, so each residual branch contributes nothing and the block starts as the identity.",
+  "Shapes: x is (B, N, D) but shift/scale/gate are (B, D) — unsqueeze(1) so one vector applies to every token of its sample. modulate is x * (1 + scale) + shift (the 1 + keeps scale = 0 neutral). Each branch is x = x + gate * f(modulate(LayerNorm(x), shift, scale)) with a LayerNorm that has no affine parameters (adaLN supplies them).",
+  "Chunk order: shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = adaLN_modulation(c).chunk(6, dim=1). patchify: reshape (B, C, H/p, p, W/p, p), permute to (B, H/p, W/p, p, p, C), flatten to (B, H*W/p^2, p*p*C); unpatchify undoes exactly those steps in reverse.",
+]
+
+[notebooks]
+question = "dit-block.ipynb"
+solution = "dit-block_SOLN.ipynb"
+
+[grading]
+tier = "A"        # A = auto-graded by check(), C = not graded
+entries = ["modulate", "TimestepEmbedder", "DiTBlock", "patchify", "unpatchify"]
+extras = []
+device = "cpu"

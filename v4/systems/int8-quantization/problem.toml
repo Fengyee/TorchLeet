@@ -1,0 +1,25 @@
+id = "int8-quantization"
+title = "INT8 Quantization from Scratch"
+description = "Implement symmetric (per-tensor and per-channel) and asymmetric int8 quantization, dequantization, and an int8 linear layer with exact integer accumulation and a single float rescale."
+difficulty = "medium"
+number = 25
+set = "v4"
+category = "systems"
+tracks = ["advanced"]
+
+# GENERATED from the grader spec — edit python/torchleet/problems/*.py, then run: generate.py hints
+hints = [
+  "Symmetric: qmax = 2^(b-1) - 1 (127 for 8 bits) and the scale maps the largest |x| exactly onto qmax. Asymmetric: the 2^b - 1 steps span [min(x.min(), 0), max(x.max(), 0)] and the zero point is the integer code that represents 0.0.",
+  "Per-channel along `axis` means one amax per index of that dimension: reduce |x| over every OTHER dim, then reshape the (C,) scale to broadcast (size C at `axis`, 1 elsewhere). Guard amax == 0 so the scale stays positive. Round with torch.round before casting — .to(torch.int8) alone truncates toward zero.",
+  "int8_linear: upcast before subtracting the zero point (uint8 - int underflows) and before the matmul (int8 @ int8 stays int8 and wraps around). (x_q.int() - zp) @ w_q.int().T is exact in int32; then one float multiply by x_scale * w_scale, where a per-channel w_scale of shape (out_features,) broadcasts over the last dim of the (M, out_features) result.",
+]
+
+[notebooks]
+question = "int8-quantization.ipynb"
+solution = "int8-quantization_SOLN.ipynb"
+
+[grading]
+tier = "A"        # A = auto-graded by check(), C = not graded
+entries = ["quantize_symmetric", "quantize_asymmetric", "dequantize", "int8_linear"]
+extras = []
+device = "cpu"

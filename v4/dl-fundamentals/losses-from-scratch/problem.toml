@@ -1,0 +1,25 @@
+id = "losses-from-scratch"
+title = "Loss Functions from Scratch: Cross-Entropy, BCE, Focal and Dice"
+description = "Implement F.cross_entropy (class weights, ignore_index, label smoothing, K-dim inputs), stable BCE-with-logits with pos_weight, RetinaNet's sigmoid focal loss and soft Dice loss, matching PyTorch values and gradients."
+difficulty = "medium"
+number = 12
+set = "v4"
+category = "dl-fundamentals"
+tracks = ["basics"]
+
+# GENERATED from the grader spec — edit python/torchleet/problems/*.py, then run: generate.py hints
+hints = [
+  "Work in log space. log_softmax(x) = x - logsumexp(x) never forms exp(large). For BCE, -log(sigmoid(x)) = softplus(-x) = log(1 + exp(-x)): compute it with torch.logaddexp(0, -x) or F.softplus(-x). Move the class axis last and flatten, so (N, C, d1, ...) becomes (M, C) with M targets.",
+  "Mean reduction is a WEIGHTED mean: divide by the sum of w[target] over non-ignored targets, not by N. Replace ignored targets by a valid index before gather(), then zero them out. PyTorch's label smoothing = (1-eps) * NLL + (eps/C) * sum_c w_c * (-log p_c), with both terms normalised by the same denominator.",
+  "BCE: loss = (1-y)*x + (1 + (pos_weight-1)*y) * softplus(-x). The hand-written max(-x,0) + log1p(exp(-|x|)) has the right value, but autograd gets the slope wrong at exactly x = 0. Focal: p_t = p*y + (1-p)*(1-y), loss = alpha_t * (1-p_t)^gamma * BCE with alpha_t = alpha*y + (1-alpha)*(1-y) (none when alpha < 0), averaged over ALL elements. Dice per sample: 1 - (2*sum(p*t) + eps) / (sum(p) + sum(t) + eps), then the batch mean.",
+]
+
+[notebooks]
+question = "losses-from-scratch.ipynb"
+solution = "losses-from-scratch_SOLN.ipynb"
+
+[grading]
+tier = "A"        # A = auto-graded by check(), C = not graded
+entries = ["cross_entropy", "binary_cross_entropy_with_logits", "sigmoid_focal_loss", "dice_loss"]
+extras = []
+device = "cpu"

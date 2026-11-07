@@ -1,9 +1,12 @@
 """custom-loss — implement Huber loss.
 
-F.huber_loss is the oracle: it ships with PyTorch, so nothing is bundled.
+F.huber_loss is the oracle: it ships with PyTorch, so nothing is bundled. It and
+F.smooth_l1_loss are disabled while the solver's loss runs (caught through a
+TorchFunctionMode), since the problem asks for the formula written out.
 """
 import torch
 import torch.nn.functional as F
+from torch.overrides import TorchFunctionMode
 
 ENTRIES = ["HuberLoss"]
 DEVICE = "cpu"
@@ -58,5 +61,23 @@ def check_gradients_flow(ns):
     assert p.grad is not None and torch.any(p.grad != 0), "no gradient w.r.t. predictions"
 
 
+class _NoBuiltinHuber(TorchFunctionMode):
+    def __torch_function__(self, func, types, args=(), kwargs=None):
+        name = getattr(func, "__name__", "")
+        if name in ("huber_loss", "smooth_l1_loss"):
+            raise AssertionError(
+                f"the built-in `{name}` was called — write the piecewise formula "
+                "yourself (torch.where on |error| <= delta)")
+        return func(*args, **(kwargs or {}))
+
+
+def check_does_not_call_the_builtin(ns):
+    """Wrapping nn.HuberLoss / F.huber_loss would pass every other check."""
+    loss = ns.HuberLoss(delta=1.5)
+    with _NoBuiltinHuber():
+        loss(torch.randn(8), torch.randn(8))
+
+
 CHECKS = [check_matches_torch_huber, check_quadratic_below_delta,
-          check_linear_above_delta, check_zero_when_perfect, check_gradients_flow]
+          check_linear_above_delta, check_zero_when_perfect, check_gradients_flow,
+          check_does_not_call_the_builtin]

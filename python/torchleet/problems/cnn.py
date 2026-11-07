@@ -1,13 +1,15 @@
 """cnn — a CNN for CIFAR-10.
 
-A Tier C problem: the notebook ships no assertions, so these checks are authored
-rather than extracted. Note EXTRAS is empty even though the notebook imports
+The notebook's own cells don't assert anything about the model, so these checks
+are authored rather than extracted. Note EXTRAS is empty even though the notebook imports
 torchvision — torchvision loads the *dataset*, while the graded unit is the model,
 which is pure torch. Requiring it would skip a check that can actually run.
 
 There is no single correct architecture here, so nothing compares against a
 reference: the checks verify the contract (shape), that the network is trainable
 (gradients reach every parameter, loss goes down), and that it is batch-agnostic.
+The shape checks run in eval mode: a model with BatchNorm1d legitimately refuses a
+batch of one while training.
 """
 import torch
 import torch.nn as nn
@@ -31,8 +33,14 @@ def _model(ns):
     return ns.CNNModel()
 
 
-def check_output_shape(ns):
+def _eval_model(ns):
     m = _model(ns)
+    m.eval()
+    return m
+
+
+def check_output_shape(ns):
+    m = _eval_model(ns)
     out = m(torch.randn(4, *SHAPE))
     assert out.ndim == 2, f"expected a 2D (batch, classes) output, got {out.ndim}D"
     assert out.shape[0] == 4, f"batch dim should be 4, got {out.shape[0]}"
@@ -41,11 +49,28 @@ def check_output_shape(ns):
 
 
 def check_batch_agnostic(ns):
-    m = _model(ns)
+    m = _eval_model(ns)
     for b in (1, 3, 8):
         out = m(torch.randn(b, *SHAPE))
         assert out.shape == (b, CLASSES), \
             f"batch size {b} gave {tuple(out.shape)}, expected {(b, CLASSES)}"
+
+
+def check_returns_logits_not_probabilities(ns):
+    """nn.CrossEntropyLoss applies log-softmax itself, so the model must return
+    raw logits. A softmax at the end still lets the loss go down, so only this
+    catches it: every row non-negative and summing to 1."""
+    m = _eval_model(ns)
+    with torch.no_grad():
+        out = m(torch.randn(8, *SHAPE))
+    rows = out.sum(dim=1)
+    is_softmax = bool((out >= 0).all()) and torch.allclose(
+        rows, torch.ones_like(rows), atol=1e-4)
+    assert not is_softmax, (
+        "every output row is non-negative and sums to 1, so the model ends in a "
+        "softmax. Return raw logits: nn.CrossEntropyLoss applies log-softmax "
+        "itself, and a softmax in front of it squashes the scores into [0, 1] "
+        "and slows learning")
 
 
 def check_gradients_reach_all_parameters(ns):
@@ -83,6 +108,7 @@ def check_can_learn(ns):
 CHECKS = [
     check_output_shape,
     check_batch_agnostic,
+    check_returns_logits_not_probabilities,
     check_gradients_reach_all_parameters,
     check_can_learn,
 ]

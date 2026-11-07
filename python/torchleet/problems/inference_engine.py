@@ -9,8 +9,18 @@ pins the positional offset the cache implies). Both runs use the solver's own
 module, so weight init and op order can never produce a false failure — only a
 genuinely wrong cache can. Causality is checked the same way: poke the last
 token and nothing earlier may move.
+
+Two more properties of a real engine: prefilling a prompt chunk into the cache
+in ONE call and then decoding must also match the full pass (the chunk needs a
+causal mask offset by the cached length), and generating a batch of prompts of
+different lengths must give every prompt exactly the completion it gets on its
+own (greedy) — padding has to be masked out of attention, positions must count
+real tokens only, and each row's next-token logits must come from its last real
+token.
 """
 import torch
+
+from torchleet.runner import Skip
 
 ENTRIES = ["SimpleTokenizer", "KVCache", "MultiHeadAttention", "FeedForward",
            "TransformerBlock", "MiniTransformer", "top_p_sample", "InferenceEngine"]
@@ -27,6 +37,10 @@ HINTS = [
     "top_p keeps the smallest set of tokens whose cumulative probability reaches "
     "top_p: sort descending, cumsum, zero out the tail, RENORMALISE, sample, then "
     "map the sampled index back through sorted_indices.",
+    "Prompts of different lengths: LEFT-pad them so every row's last prompt token is "
+    "in the last column, pass a (B, kv_len) padding mask so no query attends to a pad "
+    "key (pads stay in the KV cache), and give each row its own position ids that "
+    "count real tokens only.",
 ]
 
 V, D_MODEL, HEADS, D_FF, LAYERS, MAXLEN = 40, 32, 4, 64, 2, 64
@@ -48,8 +62,8 @@ def _block(ns):
     return m
 
 
-def _model(ns, vocab=V):
-    torch.manual_seed(2)
+def _model(ns, vocab=V, seed=2):
+    torch.manual_seed(seed)
     m = ns.MiniTransformer(vocab_size=vocab, d_model=D_MODEL, num_heads=HEADS,
                            d_ff=D_FF, num_layers=LAYERS, max_seq_len=MAXLEN)
     m.eval()
@@ -187,8 +201,8 @@ def check_cached_attention_matches_full_recomputation(ns):
         "decoding token by token through the KV cache disagrees with one full "
         f"forward pass (max diff {float((full - cached).abs().max()):.2e}). In "
         "cached mode project only the new token into q/k/v, then attend over the "
-        "whole cached K/V — and do not re-apply a causal mask, the cache already "
-        "holds only the past.")
+        "whole cached K/V. A single new token needs no causal mask (the cache holds "
+        "only the past); a multi-token chunk needs one offset by the cached length.")
 
 
 # --------------------------------------------------------------------------
@@ -331,6 +345,24 @@ def check_cached_generation_matches_full_recomputation(ns):
         "token sits at index cache.seq_len, not at 0.")
 
 
+def check_prefill_then_decode_matches_full(ns):
+    """Generation prefills the prompt in ONE cached call, then decodes token by token."""
+    m = _model(ns)
+    ids = torch.randint(0, V, (B, S))
+    n = _n_blocks(ns, m) or LAYERS
+    with torch.no_grad():
+        full = m(ids)
+        caches = [ns.KVCache() for _ in range(n)]
+        parts = [m(ids[:, :5], kv_caches=caches)]
+        parts += [m(ids[:, t:t + 1], kv_caches=caches) for t in range(5, S)]
+    got = torch.cat(parts, dim=1)
+    assert torch.allclose(full, got, atol=1e-4), (
+        "prefilling the first 5 tokens through the KV caches in one call and then "
+        "decoding the rest one at a time disagrees with a single full forward pass "
+        f"(max diff {float((full - got).abs().max()):.2e}). The prefill chunk still "
+        "needs a causal mask — offset by the cached length — inside attention.")
+
+
 # --------------------------------------------------------------------------
 # top_p_sample
 # --------------------------------------------------------------------------
@@ -382,11 +414,32 @@ def check_top_p_keeps_a_dominant_token(ns):
 # --------------------------------------------------------------------------
 PROMPTS = ["ab", "hello there", "x"]
 
+# "Greedy" through the sampling API. At T = 1e-6 a runner-up logit 2e-5 below the
+# top one gets probability e^-20, so only genuine float-level ties are left to
+# chance. (At T = 1e-4 a gap of 1e-4 still gives the runner-up a 27% chance, and
+# an untrained model hits such near-ties on a few percent of initialisations.)
+GREEDY_T = 1e-6
+
+
+def _engine_parts(ns, seed=2):
+    tok = ns.SimpleTokenizer()
+    model = _model(ns, vocab=int(tok.vocab_size), seed=seed)
+    return ns.InferenceEngine(model, tok, device="cpu"), model, tok
+
 
 def _engine(ns):
-    tok = ns.SimpleTokenizer()
-    model = _model(ns, vocab=int(tok.vocab_size))
-    return ns.InferenceEngine(model, tok, device="cpu")
+    return _engine_parts(ns)[0]
+
+
+def _near_tie_where_they_diverge(model, tok, a, b, tol=1e-4):
+    """Is the model's top-2 logit gap below tol at the first position where the
+    completions a and b differ? Greedy decoding is not well defined there: float
+    noise between a batched and an unbatched pass may pick either token."""
+    i = next((j for j, (x, y) in enumerate(zip(a, b)) if x != y), min(len(a), len(b)))
+    ids = torch.tensor([[int(t) for t in tok.encode(a[:i])]])
+    with torch.no_grad():
+        top2 = model(ids)[0, -1].topk(2).values
+    return float(top2[0] - top2[1]) < tol
 
 
 def check_engine_completes_every_prompt(ns):
@@ -421,12 +474,42 @@ def check_engine_respects_max_new_tokens(ns):
 def check_engine_is_deterministic_when_sampling_is(ns):
     eng = _engine(ns)
     with torch.no_grad():
-        a = eng.generate(PROMPTS, max_new_tokens=6, temperature=1e-4, top_p=1.0)
-        b = eng.generate(PROMPTS, max_new_tokens=6, temperature=1e-4, top_p=1.0)
+        a = eng.generate(PROMPTS, max_new_tokens=6, temperature=GREEDY_T, top_p=1.0)
+        b = eng.generate(PROMPTS, max_new_tokens=6, temperature=GREEDY_T, top_p=1.0)
     assert list(a) == list(b), (
-        "at temperature 1e-4 sampling is effectively greedy, so two calls must "
+        f"at temperature {GREEDY_T:g} sampling is effectively greedy, so two calls must "
         f"produce the same text; got {list(a)} then {list(b)}. Leftover state "
         "between calls (a KV cache that is not recreated per request) does this.")
+
+
+def check_batching_does_not_change_any_completion(ns):
+    """Prompts of different lengths share a batch; each must decode exactly as alone.
+
+    A mismatch only counts where the model clearly prefers one token: if the two
+    completions part ways at a float-level tie of the top two logits, greedy
+    decoding is not well defined there, so the check moves on to a fresh model
+    initialisation instead of failing a correct engine."""
+    for seed in (2, 3, 4):
+        eng, model, tok = _engine_parts(ns, seed)
+        with torch.no_grad():
+            batched = list(eng.generate(PROMPTS, max_new_tokens=8, temperature=GREEDY_T,
+                                        top_p=1.0))
+            alone = [eng.generate([p], max_new_tokens=8, temperature=GREEDY_T, top_p=1.0)[0]
+                     for p in PROMPTS]
+        mismatched = [(p, b, a) for p, b, a in zip(PROMPTS, batched, alone) if b != a]
+        if not mismatched:
+            return
+        for p, b, a in mismatched:
+            assert _near_tie_where_they_diverge(model, tok, a, b), (
+                f"prompt {p!r} completes to {a!r} on its own but to {b!r} when batched "
+                f"with prompts of other lengths (greedy decoding, so they must be "
+                f"identical). Shorter prompts are padded: mask the pad keys out of "
+                f"attention (they stay in the KV cache), count positions over real "
+                f"tokens only, and take each row's next-token logits at its last real "
+                f"token.")
+    raise Skip("each model initialisation tried reached a near-tie between its top two "
+               "logits, where greedy decoding is not well defined; batched-vs-alone "
+               "equivalence could not be checked")
 
 
 CHECKS = [
@@ -448,6 +531,7 @@ CHECKS = [
     check_transformer_is_causal,
     check_transformer_is_position_aware,
     check_cached_generation_matches_full_recomputation,
+    check_prefill_then_decode_matches_full,
     check_top_p_output_shape,
     check_low_temperature_collapses_to_the_argmax,
     check_top_p_drops_the_tail,
@@ -455,4 +539,5 @@ CHECKS = [
     check_engine_completes_every_prompt,
     check_engine_respects_max_new_tokens,
     check_engine_is_deterministic_when_sampling_is,
+    check_batching_does_not_change_any_completion,
 ]

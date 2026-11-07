@@ -1,0 +1,25 @@
+id = "gmm-em"
+title = "Gaussian Mixture Model with EM"
+description = "Fit a full-covariance Gaussian mixture with expectation-maximization, using a log-space E-step, closed-form M-step and a monotone likelihood history."
+difficulty = "medium"
+number = 3
+set = "v4"
+category = "ml-fundamentals"
+tracks = ["basics"]
+
+# GENERATED from the grader spec — edit python/torchleet/problems/*.py, then run: generate.py hints
+hints = [
+  "Alternate two steps. E-step: responsibilities r[n, k] = p(component k | x_n). M-step: re-estimate weights, means and covariances as responsibility-weighted averages. Do the E-step in log space.",
+  "log r[n, k] = log pi_k + log N(x_n | mu_k, Sigma_k) - logsumexp over k of the same. For log N use a Cholesky factor: Sigma = L L^T, solve L z = x - mu, then log N = -0.5 * (D log 2pi + 2 sum log diag(L) + |z|^2).",
+  "With N_k = sum_n r[n, k]: pi_k = N_k / N, mu_k = sum_n r[n, k] x_n / N_k, Sigma_k = sum_n r[n, k] (x_n - mu_k)(x_n - mu_k)^T / N_k + reg_covar * I. Record the mean log-likelihood (the mean over n of the logsumexp) at init and after every M-step.",
+]
+
+[notebooks]
+question = "gmm-em.ipynb"
+solution = "gmm-em_SOLN.ipynb"
+
+[grading]
+tier = "A"        # A = auto-graded by check(), C = not graded
+entries = ["GaussianMixture"]
+extras = []
+device = "cpu"
