@@ -117,387 +117,310 @@ export const problems: Question[] = [
 
 export const studyPlan: StudyPlan | null = {
  "id": "cv-mm-gen-4wk",
- "title": "4 周冲刺学习计划：MLE / Research Scientist / Research Engineer（CV · 多模态 · 生成模型方向）",
+ "title": "4 周学习路线：CV、多模态与生成模型",
  "source": "study/README.md",
  "weeks": [
   {
    "week": 1,
-   "title": "PyTorch 手感 + 深度学习基本功 + 经典 ML",
+   "title": "PyTorch 与深度学习基础",
    "items": [
     {
      "id": "softmax",
      "day": "D1",
-     "time": "20m",
+     "time": "",
      "star": true,
-     "note": "数值稳定：减 max"
+     "note": ""
     },
     {
      "id": "logistic-regression",
      "day": "D1",
-     "time": "40m",
-     "star": false,
-     "note": "手推梯度 (p − y)"
+     "time": "",
+     "star": true,
+     "note": ""
     },
     {
      "id": "kmeans",
      "day": "D1",
-     "time": "40m",
+     "time": "",
      "star": true,
-     "note": "`torch.cdist` + 向量化更新；空簇处理"
-    },
-    {
-     "id": "knn",
-     "day": "D1",
-     "time": "30m",
-     "star": false,
      "note": ""
     },
     {
      "id": "mlp-backprop",
      "day": "D2",
-     "time": "75m",
+     "time": "",
      "star": true,
-     "note": "不用 autograd 手写 backward；梯度检查"
+     "note": ""
     },
     {
      "id": "micrograd",
      "day": "D2",
-     "time": "75m",
-     "star": false,
-     "note": "拓扑排序 + 梯度累加（RS/RE 经典题）"
+     "time": "",
+     "star": true,
+     "note": ""
     },
     {
      "id": "losses-from-scratch",
      "day": "D3",
-     "time": "60m",
+     "time": "",
      "star": true,
-     "note": "CE+label smoothing、BCE-with-logits、focal、dice"
+     "note": ""
     },
     {
      "id": "normalization-layers",
      "day": "D3",
-     "time": "75m",
+     "time": "",
      "star": true,
-     "note": "BN 训练/推理两套统计量、LN、GN、inverted dropout"
+     "note": ""
     },
     {
      "id": "training-utilities",
      "day": "D4",
-     "time": "60m",
+     "time": "",
      "star": false,
-     "note": "SGD momentum、warmup+cosine、clip_grad_norm、EMA"
+     "note": ""
     },
     {
      "id": "adamw",
      "day": "D4",
-     "time": "45m",
+     "time": "",
      "star": false,
-     "note": "偏差修正、解耦 weight decay"
-    },
-    {
-     "id": "custom-autograd",
-     "day": "D4",
-     "time": "30m",
-     "star": false,
-     "note": "`autograd.Function` + gradcheck"
+     "note": ""
     },
     {
      "id": "debug-training",
      "day": "D5",
-     "time": "75m",
+     "time": "",
      "star": false,
-     "note": "**找 bug 题**：从症状推原因，RS/RE 面试高频"
+     "note": ""
     },
     {
      "id": "cnn-scratch",
      "day": "D5",
-     "time": "60m",
+     "time": "",
      "star": false,
-     "note": "自己实现 Conv2d / MaxPool（与 `F.conv2d` 对齐）"
-    },
-    {
-     "id": "streaming-dataset",
-     "day": "D5",
-     "time": "30m",
-     "star": false,
-     "note": "IterableDataset 的 worker 分片"
+     "note": ""
     },
     {
      "id": "classification-metrics",
      "day": "D6",
-     "time": "75m",
+     "time": "",
      "star": true,
-     "note": "P/R/F1、ROC-AUC（秩方法）、AP、ECE；面试通常只考其中 2–3 个，先做 roc_auc + AP"
+     "note": ""
     },
     {
      "id": "decision-tree",
      "day": "D6",
-     "time": "75m",
-     "star": false,
-     "note": "CART + 向量化找最佳切分点"
+     "time": "",
+     "star": true,
+     "note": ""
     },
     {
      "id": "pca",
      "day": "D6",
-     "time": "20m",
-     "star": false,
-     "note": "SVD vs 特征分解"
+     "time": "",
+     "star": true,
+     "note": ""
     }
    ]
   },
   {
    "week": 2,
-   "title": "视觉 + Attention/Transformer + 多模态",
+   "title": "视觉、注意力与多模态",
    "items": [
     {
      "id": "iou-nms",
      "day": "D8",
-     "time": "40m",
+     "time": "",
      "star": true,
-     "note": "向量化 pairwise IoU；贪心 NMS；按类 NMS 的 offset 技巧"
+     "note": ""
     },
     {
      "id": "detection-map",
      "day": "D8",
-     "time": "75m",
-     "star": false,
-     "note": "匹配规则（每个 GT 只匹配一次）+ AP 插值"
-    },
-    {
-     "id": "bilinear-interpolation",
-     "day": "D8",
-     "time": "60m",
-     "star": false,
-     "note": "`align_corners` 两种坐标映射，和 `F.interpolate` 对齐"
-    },
-    {
-     "id": "mixup-cutmix",
-     "day": "D9",
-     "time": "30m",
-     "star": false,
-     "note": "CutMix 要按**实际裁剪面积**重算 λ"
+     "time": "",
+     "star": true,
+     "note": ""
     },
     {
      "id": "implement-attention-from-scratch",
      "day": "D9",
-     "time": "40m",
+     "time": "",
      "star": true,
-     "note": "causal + padding mask，和 SDPA 对齐"
+     "note": ""
     },
     {
      "id": "multi-head-attention",
      "day": "D9",
-     "time": "50m",
+     "time": "",
      "star": true,
-     "note": "reshape/transpose 的 shape 管理"
-    },
-    {
-     "id": "grouped-query-attention",
-     "day": "D9",
-     "time": "40m",
-     "star": false,
-     "note": "`repeat_interleave` 的分组方式"
+     "note": ""
     },
     {
      "id": "vit-components",
      "day": "D10",
-     "time": "75m",
+     "time": "",
      "star": false,
-     "note": "patch 行优先顺序；pos-embed 插值时 CLS 不参与；DropPath 按样本丢、除以 keep_prob"
+     "note": ""
     },
     {
      "id": "vit-mae",
      "day": "D10",
-     "time": "90m",
+     "time": "",
      "star": false,
-     "note": "patchify、随机 mask（argsort 噪声）、只在 masked patch 上算 loss"
+     "note": ""
     },
     {
      "id": "contrastive-loss-clip",
      "day": "D11",
-     "time": "45m",
+     "time": "",
      "star": true,
-     "note": "对称 InfoNCE、可学习温度"
-    },
-    {
-     "id": "siglip-loss",
-     "day": "D11",
-     "time": "30m",
-     "star": false,
-     "note": "sigmoid loss，为什么省 all-gather"
+     "note": ""
     },
     {
      "id": "vlm-connector",
      "day": "D11",
-     "time": "75m",
-     "star": false,
-     "note": "MLP projector / Perceiver resampler / 图像 token 拼接 + label mask"
+     "time": "",
+     "star": true,
+     "note": ""
     },
     {
      "id": "self-supervised-losses",
      "day": "D12",
-     "time": "60m",
+     "time": "",
      "star": false,
-     "note": "SimCLR 的 NT-Xent（mask 掉对角线、2N 个 anchor）；DINO 的 centering + sharpening、teacher 不回传梯度、EMA"
-    },
-    {
-     "id": "vector-search",
-     "day": "D12",
-     "time": "60m",
-     "star": false,
-     "note": "精确 top-k（分块）+ IVF；recall@k"
+     "note": ""
     },
     {
      "id": "segmentation-metrics",
      "day": "D12",
-     "time": "30m",
+     "time": "",
      "star": false,
-     "note": "一次 `bincount` 得混淆矩阵；mIoU 用整个数据集累加的混淆矩阵算，不是逐图平均"
-    },
-    {
-     "id": "rotary-positional-embedding",
-     "day": "D13",
-     "time": "45m",
-     "star": false,
-     "note": "相对位置性质：⟨R_m q, R_n k⟩ = ⟨q, R_{n−m} k⟩，位置只以 n−m 的形式出现"
+     "note": ""
     }
    ]
   },
   {
    "week": 3,
-   "title": "生成模型深挖 + Research Scientist 能力",
+   "title": "生成模型与研究表达",
    "items": [
     {
      "id": "vae",
      "day": "D15",
-     "time": "60m",
+     "time": "",
      "star": true,
-     "note": "重参数化、ELBO、解析 KL"
+     "note": ""
     },
     {
      "id": "vq-vae",
      "day": "D15",
-     "time": "60m",
-     "star": false,
-     "note": "最近邻量化、straight-through、codebook 项和 commitment 项各自 detach 哪边；EMA 码本"
+     "time": "",
+     "star": true,
+     "note": ""
     },
     {
      "id": "fid",
      "day": "D15",
-     "time": "30m",
-     "star": false,
-     "note": "矩阵平方根的数值稳定写法"
+     "time": "",
+     "star": true,
+     "note": ""
     },
     {
      "id": "ddpm",
      "day": "D16",
-     "time": "90m",
+     "time": "",
      "star": true,
-     "note": "前向加噪闭式解、ε 预测、反向采样均值/方差、最后一步（代码 0-based 的 t=0，论文的 t=1）不加噪"
+     "note": ""
     },
     {
      "id": "diffusion-parameterizations",
      "day": "D16",
-     "time": "60m",
-     "star": false,
-     "note": "ε/x₀/v/score 互换、SNR 与 min-SNR 权重、cosine schedule 的下标、zero terminal SNR"
+     "time": "",
+     "star": true,
+     "note": ""
     },
     {
      "id": "ddim-cfg",
      "day": "D17",
-     "time": "90m",
-     "star": false,
-     "note": "DDIM 确定性更新；CFG 公式与 w 的约定"
+     "time": "",
+     "star": true,
+     "note": ""
     },
     {
      "id": "flow-matching",
      "day": "D17",
-     "time": "75m",
+     "time": "",
      "star": true,
-     "note": "线性路径、速度目标 x1−x0、Euler 采样（SD3/Flux 也是 rectified flow，但时间方向相反：t=1 是噪声）"
+     "note": ""
     },
     {
      "id": "dit-block",
      "day": "D18",
-     "time": "90m",
+     "time": "",
      "star": false,
-     "note": "adaLN-Zero：初始化时 block 为恒等映射"
+     "note": ""
     },
     {
      "id": "unet",
      "day": "D18",
-     "time": "60m",
+     "time": "",
      "star": false,
-     "note": "时间嵌入注入、skip concat、GroupNorm"
+     "note": ""
     },
     {
      "id": "lora",
      "day": "D20",
-     "time": "45m",
+     "time": "",
      "star": false,
-     "note": "B 零初始化、α/r 缩放、merge"
+     "note": ""
     }
    ]
   },
   {
    "week": 4,
-   "title": "系统 / RE + LLM 必备 + Mock + 速度训练",
+   "title": "系统、LLM 与模拟面试",
    "items": [
     {
      "id": "memory-flops-estimation",
      "day": "D22",
-     "time": "60m",
+     "time": "",
      "star": true,
-     "note": "16 bytes/param、6ND、KV cache 公式（RE 必问）"
+     "note": ""
     },
     {
      "id": "int8-quantization",
      "day": "D22",
-     "time": "60m",
-     "star": false,
-     "note": "per-tensor vs per-channel、零点、int32 累加"
-    },
-    {
-     "id": "conv-bn-fusion",
-     "day": "D22",
-     "time": "40m",
-     "star": false,
-     "note": "推理时把 BN 折进 conv（按输出通道缩放）；RepVGG 三分支合并成一个 3×3"
+     "time": "",
+     "star": true,
+     "note": ""
     },
     {
      "id": "ring-allreduce",
      "day": "D23",
-     "time": "90m",
+     "time": "",
      "star": false,
-     "note": "reduce-scatter + all-gather；DDP 梯度平均等价性"
+     "note": ""
     },
     {
      "id": "tensor-parallel",
      "day": "D23",
-     "time": "75m",
+     "time": "",
      "star": false,
-     "note": "Megatron 列切 / 行切、f/g 共轭算子、每个 MLP 一次 all-reduce、行并行的 bias 只加一次"
+     "note": ""
     },
     {
      "id": "flash-attention",
      "day": "D24",
-     "time": "75m",
+     "time": "",
      "star": false,
-     "note": "online softmax 的重缩放（FlashAttention 的核心）；Part 2 Triton kernel 可选，CPU 上用 `TRITON_INTERPRET=1` 也能跑"
-    },
-    {
-     "id": "top-p-sampling",
-     "day": "D24",
-     "time": "30m",
-     "star": false,
-     "note": "越过阈值的那个 token 要保留"
+     "note": ""
     },
     {
      "id": "kv-cache",
      "day": "D24",
-     "time": "60m",
+     "time": "",
      "star": false,
-     "note": "增量解码与全量重算等价"
+     "note": ""
     }
    ]
   }
